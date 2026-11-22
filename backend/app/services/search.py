@@ -21,10 +21,9 @@ from app.models.car import Car
 from app.models.city import City
 from app.models.trip import Trip, TripStatus, TripStop
 from app.models.user import User
-from app.schemas.city import CityRead
 from app.schemas.search import CarBrief, SearchParams, SearchResult, SearchResultItem
-from app.schemas.trip import StopRead
 from app.services import trips as trip_service
+from app.services.availability import free_seats, seat_bookings, segment_occupancy
 from app.services.media import media_url
 from app.services.rating import DriverStats, driver_stats
 from app.services.users import to_rated
@@ -110,16 +109,6 @@ def _mark_open_queues(matches: list[_Match]) -> None:
                 break
 
 
-def _stop_read(stop: TripStop) -> StopRead:
-    return StopRead(
-        position=stop.position,
-        city=CityRead.model_validate(stop.city),
-        address=stop.address,
-        lat=stop.lat,
-        lng=stop.lng,
-    )
-
-
 def _to_item(m: _Match) -> SearchResultItem:
     trip = m.trip
     return SearchResultItem(
@@ -134,10 +123,10 @@ def _to_item(m: _Match) -> SearchResultItem:
             photo_url=media_url(trip.car.photo_path),
             plate=trip.car.plate,
         ),
-        origin=_stop_read(trip.stops[0]),
-        destination=_stop_read(trip.stops[-1]),
-        board=_stop_read(trip.stops[m.board]),
-        alight=_stop_read(trip.stops[m.alight]),
+        origin=trip_service.stop_read(trip.stops[0]),
+        destination=trip_service.stop_read(trip.stops[-1]),
+        board=trip_service.stop_read(trip.stops[m.board]),
+        alight=trip_service.stop_read(trip.stops[m.alight]),
         stops_count=len(trip.stops),
         distance_km=round(m.distance_km, 1) if m.distance_km is not None else None,
         price=trip_service.price_read(trip_service.segment_driver_price(trip, m.board, m.alight)),
@@ -177,21 +166,23 @@ async def search_trips(db: AsyncSession, passenger: User, params: SearchParams) 
         else None
     )
     stats = await driver_stats(db, {t.driver_id for t in trips})
+    seat_rows = await seat_bookings(db, [t.id for t in trips])
 
-    matches: list[_Match] = []
+    candidates: list[_Match] = []
     for trip in trips:
         route = _match_route(trip, from_ids, to_ids, geo)
         if route is None:
             continue
         board, alight, distance = route
-        # TODO(stage 5): free seats on the board→alight segment.
-        free = trip.seats_total - await trip_service.booked_seats(db, trip)
-        if free < params.seats:
-            continue
-        matches.append(_Match(trip, board, alight, distance, free, stats[trip.driver_id]))
+        occupancy = segment_occupancy(len(trip.stops), seat_rows[trip.id])
+        free = free_seats(trip.seats_total, occupancy, board, alight)
+        candidates.append(_Match(trip, board, alight, distance, free, stats[trip.driver_id]))
 
+    # The queue is decided before the seats filter: the next car opens only once the
+    # first one is full, not because it can't fit this particular request.
+    _mark_open_queues(candidates)
+    matches = [m for m in candidates if m.seats_available >= params.seats]
     # Ranking: driver priority first, then the nearest departure (and the nearest stop).
-    _mark_open_queues(matches)
     matches.sort(
         key=lambda m: (
             -m.stats.priority,
@@ -201,3 +192,42 @@ async def search_trips(db: AsyncSession, passenger: User, params: SearchParams) 
     )
     page = matches[params.offset : params.offset + params.limit]
     return SearchResult(items=[_to_item(m) for m in page], total=len(matches))
+
+
+async def is_registration_open(db: AsyncSession, trip: Trip, board: int, alight: int) -> bool:
+    """Server-side check of the car queue for a booking request on board→alight."""
+    stops = trip.stops
+    group = list(
+        await db.scalars(
+            trip_service.with_details(
+                select(Trip).where(
+                    Trip.status == TripStatus.published,
+                    Trip.departure_at == trip.departure_at,
+                )
+            )
+        )
+    )
+    group = [
+        t
+        for t in group
+        if (t.stops[0].city_id, t.stops[-1].city_id) == (stops[0].city_id, stops[-1].city_id)
+    ]
+    if len(group) <= 1:
+        return True
+    stats = await driver_stats(db, {t.driver_id for t in group})
+    seat_rows = await seat_bookings(db, [t.id for t in group])
+    board_city, alight_city = {stops[board].city_id}, {stops[alight].city_id}
+    candidates: list[_Match] = []
+    for other in group:
+        if other.id == trip.id:
+            positions = (board, alight)
+        else:
+            route = _match_route(other, board_city, alight_city, None)
+            if route is None:
+                continue
+            positions = route[:2]
+        occupancy = segment_occupancy(len(other.stops), seat_rows[other.id])
+        free = free_seats(other.seats_total, occupancy, *positions)
+        candidates.append(_Match(other, *positions, None, free, stats[other.driver_id]))
+    _mark_open_queues(candidates)
+    return next(m.is_open for m in candidates if m.trip.id == trip.id)

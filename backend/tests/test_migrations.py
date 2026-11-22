@@ -26,7 +26,17 @@ def test_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master")}
         cities = connection.execute("SELECT COUNT(*) FROM cities").fetchone()[0]
         models = connection.execute("SELECT COUNT(*) FROM car_models").fetchone()[0]
-    assert {"users", "cities", "auth_codes", "refresh_tokens", "trips", "cars"} <= tables
+    assert {
+        "users",
+        "cities",
+        "auth_codes",
+        "refresh_tokens",
+        "trips",
+        "cars",
+        "bookings",
+        "payments",
+        "notifications",
+    } <= tables
     assert cities >= 20
     assert models >= 50
 

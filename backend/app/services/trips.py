@@ -9,6 +9,7 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.core.config import get_settings
 from app.core.errors import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.core.security import as_utc, utcnow
+from app.models.booking import ACTIVE_BOOKING_STATUSES, Booking, BookingStatus, CancelledBy
 from app.models.car import Car, CarModel
 from app.models.city import City
 from app.models.trip import (
@@ -40,7 +41,14 @@ from app.schemas.trip import (
     TripStatusView,
     TripWrite,
 )
+from app.services.availability import (
+    active_bookings_count,
+    free_seats,
+    seat_bookings,
+    segment_occupancy,
+)
 from app.services.cars import to_read as car_to_read
+from app.services.notifications import NotificationType, notify
 from app.services.pricing import route_price, with_commission
 from app.services.rating import driver_stats
 from app.services.users import to_rated
@@ -100,8 +108,7 @@ def segment_driver_price(trip: Trip, from_position: int, to_position: int) -> in
 async def quote(db: AsyncSession, trip: Trip, from_position: int, to_position: int) -> SegmentQuote:
     if not 0 <= from_position < to_position < len(trip.stops):
         raise AppError("Неверные остановки посадки и высадки", code="invalid_segment")
-    # TODO(stage 5): free seats on this particular segment.
-    free = max(trip.seats_total - await booked_seats(db, trip), 0)
+    free = await segment_free_seats(db, trip, from_position, to_position)
     return SegmentQuote(
         from_position=from_position,
         to_position=to_position,
@@ -121,13 +128,22 @@ def effective_status(trip: Trip, now: datetime | None = None) -> TripStatusView:
 
 
 async def count_active_bookings(db: AsyncSession, trip: Trip) -> int:
-    # TODO(stage 5): count pending/awaiting_payment/paid bookings of the trip.
-    return 0
+    """Pending, awaiting payment and paid bookings (seats and parcels)."""
+    return await active_bookings_count(db, trip.id)
+
+
+async def _occupancy(db: AsyncSession, trip: Trip) -> list[int]:
+    bookings = (await seat_bookings(db, [trip.id]))[trip.id]
+    return segment_occupancy(len(trip.stops), bookings)
 
 
 async def booked_seats(db: AsyncSession, trip: Trip) -> int:
-    # TODO(stage 5): max seats taken on any segment by active bookings.
-    return 0
+    """The most seats taken on any segment: the floor for `seats_total`."""
+    return max(await _occupancy(db, trip), default=0)
+
+
+async def segment_free_seats(db: AsyncSession, trip: Trip, start: int, end: int) -> int:
+    return free_seats(trip.seats_total, await _occupancy(db, trip), start, end)
 
 
 async def _ensure_editable(db: AsyncSession, trip: Trip) -> None:
@@ -151,6 +167,16 @@ def price_read(driver_price: int) -> PriceRead:
     )
 
 
+def stop_read(stop: TripStop) -> StopRead:
+    return StopRead(
+        position=stop.position,
+        city=CityRead.model_validate(stop.city),
+        address=stop.address,
+        lat=stop.lat,
+        lng=stop.lng,
+    )
+
+
 async def to_read(db: AsyncSession, trip: Trip) -> TripRead:
     seats_taken = await booked_seats(db, trip)
     editable = trip.status != TripStatus.cancelled and not is_finished(trip)
@@ -167,16 +193,7 @@ async def to_read(db: AsyncSession, trip: Trip) -> TripRead:
         seats_total=trip.seats_total,
         seats_available=max(trip.seats_total - seats_taken, 0),
         booking_mode=trip.booking_mode,
-        stops=[
-            StopRead(
-                position=stop.position,
-                city=CityRead.model_validate(stop.city),
-                address=stop.address,
-                lat=stop.lat,
-                lng=stop.lng,
-            )
-            for stop in trip.stops
-        ],
+        stops=[stop_read(stop) for stop in trip.stops],
         full_price=price_read(trip.full_price),
         min_price=price_read(trip.min_price),
         segment_prices=[
@@ -391,8 +408,27 @@ async def cancel_trip(db: AsyncSession, driver: User, trip_id: UUID) -> Trip:
     if effective_status(trip) != TripStatusView.published:
         raise ConflictError("Отменить можно только активную поездку", code="trip_not_active")
     # TODO(stage 6): cancelling with bookings warns the driver and counts toward a block.
+    now = utcnow()
     trip.status = TripStatus.cancelled
-    trip.cancelled_at = utcnow()
+    trip.cancelled_at = now
+    bookings = await db.scalars(
+        select(Booking).where(
+            Booking.trip_id == trip.id, Booking.status.in_(ACTIVE_BOOKING_STATUSES)
+        )
+    )
+    for booking in bookings:
+        booking.status = BookingStatus.cancelled
+        booking.cancelled_by = CancelledBy.driver
+        booking.cancelled_at = now
+        notify(
+            db,
+            booking.passenger_id,
+            NotificationType.trip_cancelled,
+            "Поездка отменена",
+            "Водитель отменил поездку, бронь аннулирована",
+            trip_id=trip.id,
+            booking_id=booking.id,
+        )
     await db.commit()
     return await get_own_trip(db, driver, trip.id)
 

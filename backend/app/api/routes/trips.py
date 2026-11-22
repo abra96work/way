@@ -5,6 +5,7 @@ from fastapi import APIRouter, Query, status
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.errors import ErrorResponse
+from app.schemas.booking import BookingRead
 from app.schemas.search import SegmentQuote
 from app.schemas.trip import (
     PARCEL_LIMITS,
@@ -16,6 +17,7 @@ from app.schemas.trip import (
     TripRead,
     TripWrite,
 )
+from app.services import bookings as booking_service
 from app.services import trips as trip_service
 
 router = APIRouter(prefix="/trips", tags=["trips"])
@@ -77,6 +79,17 @@ async def segment_price(
     """Цена и свободные места за одно место между двумя остановками поездки."""
     trip = await trip_service.get_visible_trip(db, user, trip_id)
     return await trip_service.quote(db, trip, from_position, to_position)
+
+
+@router.get("/{trip_id}/bookings", response_model=list[BookingRead], responses=_errors)
+async def trip_bookings(
+    trip_id: UUID, user: CurrentUser, db: DbSession, active_only: bool = False
+) -> list[BookingRead]:
+    """Заявки и пассажиры поездки — только для её водителя."""
+    bookings = await booking_service.list_trip_bookings(
+        db, user, trip_id, active_only=active_only
+    )
+    return await booking_service.read_many(db, bookings, user)
 
 
 @router.put("/{trip_id}", response_model=TripRead, responses=_errors)
