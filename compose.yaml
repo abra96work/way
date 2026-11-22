@@ -1,0 +1,36 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: put
+      POSTGRES_USER: put
+      POSTGRES_PASSWORD: put
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U put -d put"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    environment:
+      PUT_DATABASE_URL: postgresql+asyncpg://put:put@db:5432/put
+      PUT_CORS_ORIGINS: '["http://localhost:3000","http://localhost:5173"]'
+      PUT_JWT_SECRET: ${PUT_JWT_SECRET:-dev-insecure-secret-change-me-0123456789}
+      PUT_MEDIA_DIR: /app/media
+    ports:
+      - "8000:8000"
+    volumes:
+      - media-data:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  media-data:
+

@@ -1,0 +1,2 @@
+"""Путь backend application."""
+

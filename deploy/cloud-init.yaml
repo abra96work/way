@@ -1,0 +1,65 @@
+#cloud-config
+# Первичная настройка VPS для «Путь» (Ubuntu 22.04/24.04).
+# Вставить в поле Cloud-init при создании сервера. Выполняется один раз при первой загрузке.
+#
+# Что делает:
+#  - пользователь deploy с ключом проекта (id_ed25519_put), sudo без пароля, доступ к Docker;
+#  - вход по паролю по SSH отключён, только ключи (root по ключу остаётся как запасной вход);
+#  - Docker + Compose, git, автообновления безопасности, fail2ban;
+#  - firewall: открыты только 22, 80, 443;
+#  - swap 2 ГБ для маленьких тарифов;
+#  - каталог /opt/put для проекта.
+
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - ufw
+  - fail2ban
+  - unattended-upgrades
+  - docker.io
+  - docker-compose-v2
+
+users:
+  - default
+  - name: deploy
+    shell: /bin/bash
+    groups: [sudo]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO8yt3iljqVb0bVLH701mkxmWAPGuihoOXIhDk9FWZ9L put-server
+
+ssh_pwauth: false
+disable_root: false
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/60-put-hardening.conf
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin prohibit-password
+
+runcmd:
+  # Docker group appears only after the package is installed.
+  - usermod -aG docker deploy
+  - systemctl enable --now docker
+  - systemctl enable --now fail2ban
+  - systemctl restart ssh || systemctl restart sshd
+  # Firewall. Note: ports published by Docker bypass ufw, so containers must not
+  # publish database ports to 0.0.0.0 (handled in the production compose file).
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow OpenSSH
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw --force enable
+  # Swap 2 GB if the server has none.
+  - "if ! swapon --show | grep -q .; then fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab; fi"
+  - mkdir -p /opt/put
+  - chown deploy:deploy /opt/put
+
+final_message: "Put server ready after $UPTIME seconds"
