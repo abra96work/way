@@ -158,8 +158,21 @@ async def test_same_route_same_time_queue(client: AsyncClient, setup: dict) -> N
 async def test_queue_and_ranking_prefer_reliable_driver(client: AsyncClient, setup: dict) -> None:
     unreliable = await make_driver(client, "+79005550003", "Пётр")
     # A cancelled trip on another day lowers this driver's priority.
+    # Cancelling a trip with a registered passenger is a rules violation: lower priority.
     old = await publish(client, unreliable, departure_at=slot(days=2))
-    await client.post(f"/api/v1/trips/{old['id']}/cancel", headers=unreliable["headers"])
+    rider = await login(client, phone="+79005559999")
+    rider_headers = {"Authorization": f"Bearer {rider['access_token']}"}
+    await client.patch("/api/v1/me", headers=rider_headers, json={"first_name": "Лев"})
+    booking = await client.post(
+        "/api/v1/bookings",
+        headers=rider_headers,
+        json={"trip_id": old["id"], "from_position": 0, "to_position": 2},
+    )
+    await client.post(
+        f"/api/v1/bookings/{booking.json()['id']}/confirm", headers=unreliable["headers"]
+    )
+    cancel = await client.post(f"/api/v1/trips/{old['id']}/cancel", headers=unreliable["headers"])
+    assert cancel.json()["sanction"]["is_violation"] is True
     earlier_trip = await publish(client, unreliable, departure_at=slot(hour=7))
     same_time = await publish(
         client, await make_driver(client, "+79005550004", "Анна"), departure_at=slot()

@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.models.booking import BookingKind, CancelledBy
 from app.models.car import VehicleType
 from app.models.trip import BookingMode, ExtraKind, ParcelSize
+from app.schemas.feedback import SanctionInfo
 from app.schemas.search import CarBrief
 from app.schemas.trip import ExtraRead, PriceRead, StopRead, TripStatusView
 from app.schemas.user import RatedUser
@@ -114,3 +115,8 @@ class NotificationRead(BaseModel):
 
 class UnreadCount(BaseModel):
     unread: int
+
+
+class BookingCancelResult(BaseModel):
+    booking: BookingRead
+    sanction: SanctionInfo

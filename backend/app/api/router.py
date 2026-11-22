@@ -5,6 +5,7 @@ from app.api.routes import (
     bookings,
     cars,
     cities,
+    feedback,
     health,
     notifications,
     search,
@@ -22,3 +23,4 @@ api_router.include_router(trips.router)
 api_router.include_router(search.router)
 api_router.include_router(bookings.router)
 api_router.include_router(notifications.router)
+api_router.include_router(feedback.router)

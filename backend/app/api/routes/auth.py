@@ -11,7 +11,7 @@ from app.schemas.auth import (
     TokenPair,
 )
 from app.services import auth as auth_service
-from app.services.users import to_me
+from app.services.users import me_read
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -39,7 +39,7 @@ async def verify(payload: CodeVerify, db: DbSession) -> AuthResult:
         refresh_token=tokens.refresh_token,
         expires_in=tokens.expires_in,
         is_new_user=is_new,
-        user=to_me(user),
+        user=await me_read(db, user),
     )
 
 

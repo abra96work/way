@@ -313,8 +313,10 @@ async def test_cancel_and_delete(client: AsyncClient, driver: dict) -> None:
 
     cancelled = await client.post(f"/api/v1/trips/{trip['id']}/cancel", headers=driver["headers"])
     assert cancelled.status_code == 200
-    assert cancelled.json()["status"] == "cancelled"
-    assert cancelled.json()["is_editable"] is False
+    assert cancelled.json()["trip"]["status"] == "cancelled"
+    assert cancelled.json()["trip"]["is_editable"] is False
+    # Nobody was registered: no rules violation.
+    assert cancelled.json()["sanction"]["is_violation"] is False
 
     edit = await client.patch(
         f"/api/v1/trips/{trip['id']}/seats", headers=driver["headers"], json={"seats_total": 2}

@@ -12,6 +12,7 @@ from app.core.security import as_utc, utcnow
 from app.models.booking import ACTIVE_BOOKING_STATUSES, Booking, BookingStatus, CancelledBy
 from app.models.car import Car, CarModel
 from app.models.city import City
+from app.models.feedback import ParticipantRole
 from app.models.trip import (
     Trip,
     TripExtra,
@@ -22,6 +23,7 @@ from app.models.trip import (
 )
 from app.models.user import FacePhotoStatus, User
 from app.schemas.city import CityRead
+from app.schemas.feedback import SanctionInfo
 from app.schemas.search import SegmentQuote
 from app.schemas.trip import (
     PARCEL_LIMITS,
@@ -41,6 +43,7 @@ from app.schemas.trip import (
     TripStatusView,
     TripWrite,
 )
+from app.services import sanctions
 from app.services.availability import (
     active_bookings_count,
     free_seats,
@@ -403,11 +406,28 @@ async def publish_trip(db: AsyncSession, driver: User, trip_id: UUID) -> Trip:
     return await get_own_trip(db, driver, trip.id)
 
 
-async def cancel_trip(db: AsyncSession, driver: User, trip_id: UUID) -> Trip:
+async def _cancellable_trip(db: AsyncSession, driver: User, trip_id: UUID) -> Trip:
     trip = await get_own_trip(db, driver, trip_id)
     if effective_status(trip) != TripStatusView.published:
         raise ConflictError("Отменить можно только активную поездку", code="trip_not_active")
-    # TODO(stage 6): cancelling with bookings warns the driver and counts toward a block.
+    return trip
+
+
+async def cancel_preview(db: AsyncSession, driver: User, trip_id: UUID) -> SanctionInfo:
+    trip = await _cancellable_trip(db, driver, trip_id)
+    violation = await sanctions.trip_has_registered_passengers(db, trip.id)
+    return await sanctions.preview(db, driver, is_violation=violation)
+
+
+async def cancel_trip(db: AsyncSession, driver: User, trip_id: UUID) -> tuple[Trip, SanctionInfo]:
+    """Cancel the trip and all its bookings; a violation if passengers were registered."""
+    trip = await _cancellable_trip(db, driver, trip_id)
+    if await sanctions.trip_has_registered_passengers(db, trip.id):
+        sanction = await sanctions.record_violation(
+            db, driver, ParticipantRole.driver, trip_id=trip.id
+        )
+    else:
+        sanction = await sanctions.preview(db, driver, is_violation=False)
     now = utcnow()
     trip.status = TripStatus.cancelled
     trip.cancelled_at = now
@@ -430,7 +450,7 @@ async def cancel_trip(db: AsyncSession, driver: User, trip_id: UUID) -> Trip:
             booking_id=booking.id,
         )
     await db.commit()
-    return await get_own_trip(db, driver, trip.id)
+    return await get_own_trip(db, driver, trip.id), sanction
 
 
 async def delete_trip(db: AsyncSession, driver: User, trip_id: UUID) -> None:

@@ -36,6 +36,9 @@ def test_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
         "bookings",
         "payments",
         "notifications",
+        "reviews",
+        "complaints",
+        "cancellations",
     } <= tables
     assert cities >= 20
     assert models >= 50

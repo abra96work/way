@@ -183,7 +183,9 @@ async def test_trip_with_bookings_is_locked(client: AsyncClient, world: dict) ->
 async def test_passenger_cancels(client: AsyncClient, world: dict) -> None:
     booking = await book(client, world["passenger"], request(world, seats=3))
 
-    cancelled = await act(client, world["passenger"], booking, "cancel")
+    result = await act(client, world["passenger"], booking, "cancel")
+    cancelled = result["booking"]
+    assert result["sanction"]["is_violation"] is False  # still pending: not registered
 
     assert cancelled["status"] == "cancelled"
     assert cancelled["cancelled_by"] == "passenger"
