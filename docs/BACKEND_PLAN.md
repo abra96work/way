@@ -102,18 +102,18 @@ app/
 | `trip_segment_prices` | trip_id, from_position, to_position, price — соседние пары обязательны (при 3+ остановках), другие пары — необязательные переопределения |
 | `trip_extras` | trip_id, kind (child_seat/pets/luggage), price |
 | `trip_parcel_prices` | trip_id, size (S/M/L), price; габариты/вес — константы (`GET /trips/parcel-sizes`); пусто — посылки не принимаются |
-| `bookings` | id, trip_id, passenger_id, from_stop_id, to_stop_id, kind (seat/parcel), seats, parcel_size, status, driver_price, commission, total, created_at, cancelled_at, cancelled_by |
+| `bookings` | id, trip_id, passenger_id, kind (seat/parcel), status, from_position, to_position, seats (0 у посылки), parcel_size, driver_price, commission, confirmed_at, paid_at, cancelled_at, cancelled_by (passenger/driver), created_at |
 | `booking_extras` | booking_id, kind, price |
 | `payments` | id, booking_id, amount (комиссия), status (paid), provider='mock', created_at |
 | `reviews` | id, trip_id, author_id, target_id, rating 1–5, text, created_at (unique: trip+author+target) |
 | `complaints` | id, author_id, target_id, trip_id, reason, text, status, created_at |
 | `cancellations` | id, user_id, booking_id/trip_id, role, created_at — основа для санкций и рейтинга |
-| `notifications` | id, user_id, type, payload JSON, read_at, created_at |
+| `notifications` | id, user_id, type, title, body, payload JSON (trip_id, booking_id), read_at, created_at |
 | `chat_messages` *(этап 7)* | id, booking_id, sender_id, text, created_at |
 
 Статусы брони:
-`pending` (ждёт водителя) → `awaiting_payment` → `paid` → `completed`;
-боковые: `rejected`, `cancelled_by_passenger`, `cancelled_by_driver`.
+`pending` (ждёт водителя) → `awaiting_payment` → `paid` → `completed` (вычисляется);
+боковые: `rejected`, `cancelled` + `cancelled_by` (passenger/driver). `pending` уже держит места.
 Быстрое бронирование: сразу `awaiting_payment`.
 
 ## 5. API v1 (черновик)
@@ -148,14 +148,16 @@ GET   /search/trips?from_city_id=&to_city_id=&from_query=&to_query=&lat=&lng=&ra
          driver{rating, reviews_count}, is_registration_open], total}
 GET   /trips/{id}/price?from_position=&to_position=   цена и свободные места отрезка
 
-POST  /bookings                 {trip_id, from_stop_id, to_stop_id, kind, seats, extras[], parcel_size}
+POST  /bookings/quote           расчёт до бронирования
+POST  /bookings                 {trip_id, from_position, to_position, kind, seats, extras[], parcel_size}
                                 → цена с разбивкой (driver_price, commission, total)
 GET   /bookings/mine?status=
 POST  /bookings/{id}/confirm | /reject      (водитель)
 POST  /bookings/{id}/pay        mock → сразу paid
 POST  /bookings/{id}/cancel     предупреждение/санкции в ответе
 
-GET   /notifications   POST /notifications/{id}/read
+GET   /notifications?unread_only=   GET /notifications/unread-count
+POST  /notifications/{id}/read   POST /notifications/read-all
 POST  /complaints
 ```
 
@@ -185,7 +187,7 @@ POST  /complaints
 
 ## 7. Этапы
 
-Статус: этапы 0–4 выполнены (2026-11-23).
+Статус: этапы 0–5 выполнены (2026-11-23).
 
 | # | Этап | Результат | Оценка |
 |---|---|---|---|
