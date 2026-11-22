@@ -9,6 +9,7 @@ from app.models.booking import (
     Payment,
 )
 from app.models.car import Car, CarBrand, CarModel, VehicleType
+from app.models.chat import Chat, ChatMessage
 from app.models.city import City
 from app.models.feedback import (
     Cancellation,
@@ -51,6 +52,8 @@ __all__ = [
     "Car",
     "CarBrand",
     "CarModel",
+    "Chat",
+    "ChatMessage",
     "City",
     "ExtraKind",
     "FacePhotoStatus",

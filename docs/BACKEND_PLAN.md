@@ -109,7 +109,8 @@ app/
 | `complaints` | id, author_id, target_id, trip_id, reason (no_show/late/rude/unsafe_driving/vehicle_mismatch/fraud/other), text, status (new/in_review/resolved/rejected), resolved_at, created_at |
 | `cancellations` | id, user_id, role, trip_id, booking_id, blocked_until, created_at — только отмены-нарушения (после регистрации пассажира); основа санкций и рейтинга |
 | `notifications` | id, user_id, type, title, body, payload JSON (trip_id, booking_id), read_at, created_at |
-| `chat_messages` *(этап 7)* | id, booking_id, sender_id, text, created_at |
+| `chats` | id, trip_id, driver_id, passenger_id (unique trip+passenger), last_message_at, driver_read_id, passenger_read_id |
+| `chat_messages` | id (растущий, курсор и отметка прочтения), chat_id, sender_id, text ≤ 2000, created_at |
 
 Статусы брони:
 `pending` (ждёт водителя) → `awaiting_payment` → `paid` → `completed` (вычисляется);
@@ -157,6 +158,9 @@ POST  /bookings/{id}/confirm | /reject      (водитель)
 POST  /bookings/{id}/pay        mock → сразу paid
 GET   /bookings/{id}/cancel-preview   POST /bookings/{id}/cancel → {booking, sanction}
 
+POST  /chats {booking_id}   GET /chats   GET /chats/unread-count   GET /chats/{id}
+GET   /chats/{id}/messages?after_id=&before_id=&limit=   POST /chats/{id}/messages   POST /chats/{id}/read
+WS    /chats/ws?token=   live: message / read / pong; клиент может слать message / read / ping
 GET   /notifications?unread_only=   GET /notifications/unread-count
 POST  /notifications/{id}/read   POST /notifications/read-all
 POST  /complaints   POST /reviews (выключено флагом)
@@ -188,7 +192,7 @@ POST  /complaints   POST /reviews (выключено флагом)
 
 ## 7. Этапы
 
-Статус: этапы 0–6 выполнены (2026-11-23).
+Статус: этапы 0–7 выполнены (2026-11-23).
 
 | # | Этап | Результат | Оценка |
 |---|---|---|---|
@@ -199,7 +203,7 @@ POST  /complaints   POST /reviews (выключено флагом)
 | 4 | Поиск | фильтры город/текст/гео/дата/тип, ранжирование, очередь машин, детали поездки с ценами и доступностью | 1 день |
 | 5 | Бронирование и оплата | расчёт цены, места по отрезкам, ручной/быстрый режим, confirm/reject, mock-оплата, мои брони/поездки, уведомления | 1,5 дня |
 | 6 | Отмены, рейтинг, отзывы, жалобы | санкции 2/30, рейтинг, таблицы reviews/complaints, «5 звёзд, нет отзывов» | 1 день |
-| 7 | Чат (если в объёме) | сообщения по брони, опрос или WebSocket | 0,5–1 день |
+| 7 | Чат | водитель ↔ пассажир по брони, история в БД, доставка по WebSocket, отметки прочтения | 0,5–1 день |
 | 8 | Админка (минимум) | sqladmin: пользователи, блокировки, проверка фото лица, жалобы | 0,5 дня |
 | 9 | Деплой и сдача | Docker-образ, Postgres, HTTPS-хостинг вне РФ, seed демо-водителей/поездок, README, проверка APK против прода | 1 день |
 

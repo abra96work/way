@@ -4,6 +4,7 @@ from app.api.routes import (
     auth,
     bookings,
     cars,
+    chat,
     cities,
     feedback,
     health,
@@ -24,3 +25,4 @@ api_router.include_router(search.router)
 api_router.include_router(bookings.router)
 api_router.include_router(notifications.router)
 api_router.include_router(feedback.router)
+api_router.include_router(chat.router)

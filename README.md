@@ -42,6 +42,15 @@ API будет доступен на `http://127.0.0.1:8000`, документа
 4. Новый пользователь заполняет `PATCH /api/v1/me` (`first_name`, `last_name`, `city_id`)
    и `PUT /api/v1/me/avatar` (multipart, поле `file`).
 
+#### Чат водителя и пассажира
+
+Чат открывается по брони: `POST /api/v1/chats {"booking_id": ...}` (тот же чат для обоих).
+История и отправка — REST (`/chats/{id}/messages`), доставка в реальном времени —
+WebSocket `ws://<host>/api/v1/chats/ws?token=<access_token>`: сервер присылает
+`{"type": "message", ...}` и `{"type": "read", ...}`, клиент может отправлять
+`{"type": "message", "chat_id", "text"}`, `{"type": "read", "chat_id"}`, `{"type": "ping"}`.
+Соединения хранятся в памяти процесса — API запускается одним воркером (так и сделано в Docker).
+
 Ошибки приходят в едином формате `{"code": "...", "message": "..."}`: `code` — для логики
 клиента, `message` — готовый русский текст. Ссылки на файлы (`avatar_url`) относительны
 хосту API, например `/media/avatars/<id>.jpg`.

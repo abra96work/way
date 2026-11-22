@@ -7,12 +7,18 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
 
 
 def build_engine(url: str) -> AsyncEngine:
-    engine = create_async_engine(url, pool_pre_ping=True)
+    if url.startswith("sqlite"):
+        # No pooling for SQLite: connections are cheap and must not outlive the event
+        # loop that opened them (WebSocket test clients run their own loop).
+        engine = create_async_engine(url, poolclass=NullPool)
+    else:
+        engine = create_async_engine(url, pool_pre_ping=True)
     if engine.dialect.name == "sqlite":
         # SQLite ignores foreign keys unless enabled per connection.
         @event.listens_for(engine.sync_engine, "connect")
