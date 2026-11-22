@@ -25,6 +25,7 @@ from app.models.booking import (
     CancelledBy,
     Payment,
 )
+from app.models.feedback import ParticipantRole
 from app.models.trip import BookingMode, ExtraKind, Trip, TripStatus
 from app.models.user import User
 from app.schemas.booking import (
@@ -36,8 +37,10 @@ from app.schemas.booking import (
     BookingTrip,
     PaymentInfo,
 )
+from app.schemas.feedback import SanctionInfo
 from app.schemas.search import CarBrief
 from app.schemas.trip import ExtraRead
+from app.services import sanctions
 from app.services import trips as trip_service
 from app.services.media import media_url
 from app.services.notifications import NotificationType, notify
@@ -359,7 +362,7 @@ async def pay(db: AsyncSession, passenger: User, booking_id: UUID) -> tuple[Book
     return booking, trip
 
 
-async def cancel(db: AsyncSession, passenger: User, booking_id: UUID) -> tuple[Booking, Trip]:
+async def _cancellable(db: AsyncSession, passenger: User, booking_id: UUID) -> tuple[Booking, Trip]:
     booking, trip = await get_for_user(db, passenger, booking_id)
     if booking.passenger_id != passenger.id:
         raise ForbiddenError("Отменить бронь может только пассажир", code="not_booking_passenger")
@@ -367,7 +370,25 @@ async def cancel(db: AsyncSession, passenger: User, booking_id: UUID) -> tuple[B
         raise ConflictError("Бронь уже неактивна", code="booking_inactive")
     if _departed(trip):
         raise ConflictError("Поездка уже отправилась", code="trip_departed")
-    # TODO(stage 6): warn about community rules and count toward the 2-in-30-days block.
+    return booking, trip
+
+
+async def cancel_preview(db: AsyncSession, passenger: User, booking_id: UUID) -> SanctionInfo:
+    """Shown before cancelling: is it a rules violation and will it block the account."""
+    booking, _ = await _cancellable(db, passenger, booking_id)
+    return await sanctions.preview(db, passenger, is_violation=sanctions.is_registered(booking))
+
+
+async def cancel(
+    db: AsyncSession, passenger: User, booking_id: UUID
+) -> tuple[Booking, Trip, SanctionInfo]:
+    booking, trip = await _cancellable(db, passenger, booking_id)
+    if sanctions.is_registered(booking):
+        sanction = await sanctions.record_violation(
+            db, passenger, ParticipantRole.passenger, trip_id=trip.id, booking_id=booking.id
+        )
+    else:
+        sanction = await sanctions.preview(db, passenger, is_violation=False)
     booking.status = BookingStatus.cancelled
     booking.cancelled_by = CancelledBy.passenger
     booking.cancelled_at = utcnow()
@@ -381,7 +402,7 @@ async def cancel(db: AsyncSession, passenger: User, booking_id: UUID) -> tuple[B
         booking_id=booking.id,
     )
     await db.commit()
-    return booking, trip
+    return booking, trip, sanction
 
 
 # ---------- lists ----------

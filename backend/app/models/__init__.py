@@ -9,7 +9,16 @@ from app.models.booking import (
     Payment,
 )
 from app.models.car import Car, CarBrand, CarModel, VehicleType
+from app.models.chat import Chat, ChatMessage
 from app.models.city import City
+from app.models.feedback import (
+    Cancellation,
+    Complaint,
+    ComplaintReason,
+    ComplaintStatus,
+    ParticipantRole,
+    Review,
+)
 from app.models.trip import (
     BookingMode,
     ExtraKind,
@@ -31,12 +40,20 @@ __all__ = [
     "BookingKind",
     "BookingMode",
     "BookingStatus",
+    "Cancellation",
     "CancelledBy",
+    "Complaint",
+    "ComplaintReason",
+    "ComplaintStatus",
+    "ParticipantRole",
+    "Review",
     "Notification",
     "Payment",
     "Car",
     "CarBrand",
     "CarModel",
+    "Chat",
+    "ChatMessage",
     "City",
     "ExtraKind",
     "FacePhotoStatus",

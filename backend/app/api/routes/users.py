@@ -21,29 +21,29 @@ _errors = {
 
 
 @router.get("/me", response_model=MeRead, responses=_errors)
-async def get_me(user: CurrentUser) -> MeRead:
-    return user_service.to_me(user)
+async def get_me(user: CurrentUser, db: DbSession) -> MeRead:
+    return await user_service.me_read(db, user)
 
 
 @router.patch("/me", response_model=MeRead, responses=_errors)
 async def update_me(payload: MeUpdate, user: CurrentUser, db: DbSession) -> MeRead:
     """Заполнить или изменить имя, фамилию и город."""
     user = await user_service.update_profile(db, user, payload)
-    return user_service.to_me(user)
+    return await user_service.me_read(db, user)
 
 
 @router.put("/me/avatar", response_model=MeRead, responses=_errors)
 async def upload_avatar(user: CurrentUser, db: DbSession, file: ImageFile) -> MeRead:
     """Аватар: JPEG/PNG/WebP до 5 МБ. `avatar_url` относителен хосту API."""
     user = await user_service.set_avatar(db, user, file)
-    return user_service.to_me(user)
+    return await user_service.me_read(db, user)
 
 
 @router.put("/me/face-photo", response_model=MeRead, responses=_errors)
 async def upload_face_photo(user: CurrentUser, db: DbSession, file: ImageFile) -> MeRead:
     """Фото лица водителя в анфас; уходит на проверку администратору."""
     user = await user_service.set_face_photo(db, user, file)
-    return user_service.to_me(user)
+    return await user_service.me_read(db, user)
 
 
 @router.get("/users/{user_id}", response_model=RatedUser, responses=_errors)

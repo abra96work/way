@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     trip_complete_after_hours: int = 6
     # Drivers need an admin-approved face photo. Off until the admin panel exists (stage 8).
     require_driver_face_approval: bool = False
+    # The test build has no UI for leaving reviews; the API exists behind this flag.
+    reviews_enabled: bool = False
     cancellations_to_block: int = 2
     cancellation_window_days: int = 30
     block_duration_days: int = 30

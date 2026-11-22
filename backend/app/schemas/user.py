@@ -20,7 +20,8 @@ class RatedUser(PublicUser):
     completed_trips: int
 
 
-class MeRead(PublicUser):
+class MeRead(RatedUser):
+    cancellations_count: int = Field(description="Отмен с нарушением правил за всё время")
     phone: str
     city: CityRead | None
     face_photo_status: FacePhotoStatus

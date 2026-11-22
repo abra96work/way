@@ -5,7 +5,14 @@ from fastapi import APIRouter, Query, status
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.errors import ErrorResponse
-from app.schemas.booking import BookingListFilter, BookingQuote, BookingRead, BookingRequest
+from app.schemas.booking import (
+    BookingCancelResult,
+    BookingListFilter,
+    BookingQuote,
+    BookingRead,
+    BookingRequest,
+)
+from app.schemas.feedback import SanctionInfo
 from app.services import bookings as booking_service
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
@@ -73,7 +80,17 @@ async def pay(booking_id: UUID, user: CurrentUser, db: DbSession) -> BookingRead
     return await booking_service.to_read(db, booking, trip, user)
 
 
-@router.post("/{booking_id}/cancel", response_model=BookingRead, responses=_errors)
-async def cancel(booking_id: UUID, user: CurrentUser, db: DbSession) -> BookingRead:
-    booking, trip = await booking_service.cancel(db, user, booking_id)
-    return await booking_service.to_read(db, booking, trip, user)
+@router.get("/{booking_id}/cancel-preview", response_model=SanctionInfo, responses=_errors)
+async def cancel_preview(booking_id: UUID, user: CurrentUser, db: DbSession) -> SanctionInfo:
+    """Перед отменой: нарушает ли она правила сообщества и приведёт ли к блокировке."""
+    return await booking_service.cancel_preview(db, user, booking_id)
+
+
+@router.post("/{booking_id}/cancel", response_model=BookingCancelResult, responses=_errors)
+async def cancel(booking_id: UUID, user: CurrentUser, db: DbSession) -> BookingCancelResult:
+    """Отмена пассажиром. После регистрации (подтверждена/оплачена) — предупреждение,
+    2 такие отмены за 30 дней блокируют аккаунт на 30 дней."""
+    booking, trip, sanction = await booking_service.cancel(db, user, booking_id)
+    return BookingCancelResult(
+        booking=await booking_service.to_read(db, booking, trip, user), sanction=sanction
+    )

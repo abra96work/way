@@ -20,6 +20,7 @@ class NotificationType(enum.StrEnum):
     booking_paid = "booking_paid"  # driver
     booking_cancelled = "booking_cancelled"  # driver: passenger cancelled
     trip_cancelled = "trip_cancelled"  # passenger: driver cancelled the trip
+    account_blocked = "account_blocked"  # user: too many cancellations
 
 
 def notify(
