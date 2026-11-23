@@ -4,7 +4,9 @@ import 'package:flutter/services.dart';
 enum TripRole { driver, passenger }
 
 class RoleSelectionPage extends StatefulWidget {
-  const RoleSelectionPage({super.key});
+  const RoleSelectionPage({super.key, this.onRoleSelected});
+
+  final ValueChanged<TripRole>? onRoleSelected;
 
   @override
   State<RoleSelectionPage> createState() => _RoleSelectionPageState();
@@ -207,8 +209,10 @@ class _RoleSelectionPageState extends State<RoleSelectionPage> {
   }
 
   void _selectRole(TripRole role) {
-    if (_selectedRole == role) return;
-    setState(() => _selectedRole = role);
+    if (_selectedRole != role) {
+      setState(() => _selectedRole = role);
+    }
+    widget.onRoleSelected?.call(role);
   }
 }
 
