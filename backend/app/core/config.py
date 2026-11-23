@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # Business rules.
     local_timezone: str = "Asia/Yekaterinburg"  # "a day" for publishing limits
     commission_percent: Decimal = Decimal("10")
-    trip_publish_days_ahead: int = 7  # a week, as the date picker in Figma offers
+    trip_publish_days_ahead: int = 3  # the requirements sticker in Figma: "не дальше 3 дней"
     trip_max_stops: int = 10
     # Published trips per calendar week (Mon–Sun, local), as "На неделе 3 / 10" in Figma.
     trip_week_limit: int = 10

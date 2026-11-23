@@ -27,9 +27,8 @@ class RouteStepPage extends StatefulWidget {
   /// Injectable "now" for tests.
   final DateTime Function() clock;
 
-  /// The calendar offers today and the next [daysAhead] days: a week, as in
-  /// Figma (the backend accepts departures up to 7 days ahead).
-  static const daysAhead = 6;
+  /// The calendar offers today and the next [daysAhead] days.
+  static const daysAhead = TripDraft.maxDaysAhead;
 
   @override
   State<RouteStepPage> createState() => _RouteStepPageState();
@@ -77,6 +76,8 @@ class _RouteStepPageState extends State<RouteStepPage> {
         final now = widget.clock();
         final departure = draft.departureAt;
         final departureInPast = departure != null && !departure.isAfter(now);
+        final departureTooFar =
+            departure != null && TripDraft.isTooFar(departure, now);
         return NewTripScaffold(
           step: 2,
           onBack: widget.onBack,
@@ -134,6 +135,12 @@ class _RouteStepPageState extends State<RouteStepPage> {
                 const DriverHint(
                   'Это время уже прошло — выберите другое',
                   key: ValueKey('route-past-error'),
+                ),
+              if (departureTooFar)
+                const DriverHint(
+                  'Публиковать можно не дальше чем на 3 дня вперёд — '
+                  'выберите время пораньше',
+                  key: ValueKey('route-too-far-error'),
                 ),
               const SizedBox(height: 20),
               const Text('Примерное время прибытия', style: DriverText.label),

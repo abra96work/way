@@ -130,6 +130,14 @@ class TripDraft extends ChangeNotifier {
 
   static const maxStops = 10;
 
+  /// Publishing window from the requirements: "не дальше 3 дней"
+  /// (backend `PUT_TRIP_PUBLISH_DAYS_AHEAD`).
+  static const maxDaysAhead = 3;
+
+  /// Departure later than [maxDaysAhead] days from [now] is refused.
+  static bool isTooFar(DateTime departure, DateTime now) =>
+      departure.isAfter(now.add(const Duration(days: maxDaysAhead)));
+
   int _nextStopId = 0;
   VehicleType _vehicleType = VehicleType.car;
   late List<RouteStop> _stops;
@@ -250,6 +258,7 @@ class TripDraft extends ChangeNotifier {
         !sameOriginAndDestination &&
         departure != null &&
         departure.isAfter(now) &&
+        !isTooFar(departure, now) &&
         _seats >= 1;
   }
 

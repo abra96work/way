@@ -187,7 +187,11 @@ async def test_publish_requires_first_name(client: AsyncClient, auth: dict) -> N
 
 @pytest.mark.parametrize(
     ("departure", "code"),
-    [(slot(days=-1), "departure_in_past"), (slot(days=9), "departure_too_far")],
+    [
+        (slot(days=-1), "departure_in_past"),
+        # Requirements: no further than 3 days ahead.
+        (slot(days=4), "departure_too_far"),
+    ],
 )
 async def test_publish_time_window(
     client: AsyncClient, driver: dict, departure: str, code: str

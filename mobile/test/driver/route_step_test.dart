@@ -157,7 +157,7 @@ void main() {
     expect(draft.stops.first.city, isNull);
   });
 
-  testWidgets('calendar offers a week starting today', (tester) async {
+  testWidgets('calendar offers today and the next 3 days', (tester) async {
     final draft = TripDraft();
     await _pump(tester, draft);
 
@@ -170,16 +170,40 @@ void main() {
     await tester.pump();
     final confirm = tester.widget<FilledButton>(_key('sheet-confirm'));
     expect(confirm.onPressed, isNull, reason: 'yesterday is not allowed');
-    final next = tester.widget<IconButton>(_key('calendar-next'));
-    expect(next.onPressed, isNull, reason: 'the week ends on 30 November');
 
-    await tester.tap(_key('calendar-day-11-30'));
+    await tester.tap(_key('calendar-day-11-28'));
+    await tester.pump();
+    expect(
+      tester.widget<FilledButton>(_key('sheet-confirm')).onPressed,
+      isNull,
+      reason: '28 November is more than 3 days ahead',
+    );
+
+    await tester.tap(_key('calendar-day-11-27'));
     await tester.pump();
     await tester.tap(_key('sheet-confirm'));
     await tester.pumpAndSettle();
 
-    expect(draft.departureDate, DateTime(2026, 11, 30));
-    expect(find.text('30.11.2026'), findsOneWidget);
+    expect(draft.departureDate, DateTime(2026, 11, 27));
+    expect(find.text('27.11.2026'), findsOneWidget);
+  });
+
+  testWidgets('later than 3 days from now shows a hint and blocks "Далее"', (
+    tester,
+  ) async {
+    // Now is 24.11 10:10, so 27.11 10:30 is past the 72-hour window.
+    final draft = _filledDraft()
+      ..departureDate = DateTime(2026, 11, 27)
+      ..departureTime = const TimeOfDay(hour: 10, minute: 30);
+    await _pump(tester, draft);
+
+    expect(_key('route-too-far-error'), findsOneWidget);
+    expect(_nextButton(tester).onPressed, isNull);
+
+    draft.departureTime = const TimeOfDay(hour: 10, minute: 0);
+    await tester.pump();
+    expect(_key('route-too-far-error'), findsNothing);
+    expect(_nextButton(tester).onPressed, isNotNull);
   });
 
   testWidgets('time sheet picks hours and 30-minute steps', (tester) async {

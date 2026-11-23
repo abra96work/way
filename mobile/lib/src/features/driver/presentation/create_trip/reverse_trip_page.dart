@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../domain/driver_api_exception.dart';
 import '../../domain/driver_trip.dart';
+import '../../domain/trip_draft.dart';
 import '../widgets/driver_style.dart';
 import '../widgets/new_trip_scaffold.dart';
 import '../widgets/price_summary.dart';
@@ -71,7 +72,12 @@ class _ReverseTripPageState extends State<ReverseTripPage> {
     return departure != null && !departure.isAfter(widget.clock());
   }
 
-  bool get _ready => _departureAt != null && !_inPast;
+  bool get _tooFar {
+    final departure = _departureAt;
+    return departure != null && TripDraft.isTooFar(departure, widget.clock());
+  }
+
+  bool get _ready => _departureAt != null && !_inPast && !_tooFar;
 
   Future<void> _publish() async {
     final departure = _departureAt!;
@@ -256,6 +262,12 @@ class _ReverseTripPageState extends State<ReverseTripPage> {
             const DriverHint(
               'Это время уже прошло — выберите другое',
               key: ValueKey('reverse-past-error'),
+            ),
+          if (_tooFar)
+            const DriverHint(
+              'Публиковать можно не дальше чем на 3 дня вперёд — '
+              'выберите время пораньше',
+              key: ValueKey('reverse-too-far-error'),
             ),
           const SizedBox(height: 20),
           const Text('Примерное время прибытия', style: DriverText.label),
