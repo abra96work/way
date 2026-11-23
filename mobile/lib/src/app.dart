@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'core/config/app_config.dart';
 import 'core/network/api_client.dart';
@@ -11,6 +12,7 @@ import 'features/auth/presentation/profile_registration_page.dart';
 import 'features/auth/presentation/sms_code_page.dart';
 import 'features/driver/domain/driver_api_exception.dart';
 import 'features/driver/domain/driver_car.dart';
+import 'features/driver/domain/driver_profile.dart';
 import 'features/driver/domain/driver_trip.dart';
 import 'features/driver/domain/trip_draft.dart';
 import 'features/driver/presentation/create_trip/booking_step_page.dart';
@@ -21,6 +23,12 @@ import 'features/driver/presentation/create_trip/reverse_trip_page.dart';
 import 'features/driver/presentation/create_trip/route_step_page.dart';
 import 'features/driver/presentation/create_trip/trip_published_page.dart';
 import 'features/driver/presentation/create_trip/trip_type_step_page.dart';
+import 'features/driver/presentation/profile/driver_profile_page.dart';
+import 'features/driver/presentation/vehicles/add_vehicle_page.dart';
+import 'features/driver/presentation/vehicles/catalog_picker_sheet.dart';
+import 'features/driver/presentation/vehicles/vehicles_page.dart';
+import 'features/driver/presentation/widgets/photo_source_sheet.dart';
+import 'features/driver/presentation/widgets/driver_nav_bar.dart';
 import 'features/onboarding/presentation/city_selection_page.dart';
 import 'features/onboarding/presentation/onboarding_page.dart';
 import 'features/onboarding/presentation/registration_intro_page.dart';
@@ -39,6 +47,7 @@ class _PutAppState extends State<PutApp> {
   final _apiClient = createApiClient();
   final _tripDraft = TripDraft();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
+  String? _refreshToken;
 
   @override
   void initState() {
@@ -112,6 +121,39 @@ class _PutAppState extends State<PutApp> {
           path: '/city-selection',
           builder: (context, state) => const CitySelectionPage(),
         ),
+        GoRoute(
+          path: '/driver/profile',
+          builder: (context, state) => DriverProfilePage(
+            loadProfile: _loadProfile,
+            loadUnreadNotifications: _loadUnreadNotifications,
+            onOpen: (section) => section == ProfileSection.vehicles
+                ? context.push('/driver/cars')
+                : _comingSoon(),
+            onLogout: _logout,
+            onTab: (tab) => _openDriverTab(context, tab),
+          ),
+        ),
+        GoRoute(
+          path: '/driver/cars/new',
+          builder: (context, state) => AddVehiclePage(
+            loadBrands: _loadBrands,
+            loadModels: _loadModels,
+            pickPhoto: _pickPhoto,
+            onSubmit: (vehicle) async {
+              await _createVehicle(vehicle);
+              if (context.mounted) context.pop();
+            },
+          ),
+        ),
+        GoRoute(
+          path: '/driver/cars',
+          builder: (context, state) => VehiclesPage(
+            loadCars: _loadCars,
+            // The "add a vehicle" form comes with its screens.
+            onAddCar: () => context.push<void>('/driver/cars/new'),
+            onOpenCar: (_) async => _comingSoon(),
+          ),
+        ),
         // Driver: "Новый заказ" wizard, six steps.
         GoRoute(
           path: '/driver/trips/new',
@@ -144,7 +186,7 @@ class _PutAppState extends State<PutApp> {
             draft: _tripDraft,
             loadCars: _loadCars,
             onNext: () => context.push('/driver/trips/new/extras'),
-            // "Добавить авто" appears once the "Мои автомобили" screens exist.
+            onAddCar: () => context.push<void>('/driver/cars/new'),
           ),
         ),
         GoRoute(
@@ -226,6 +268,8 @@ class _PutAppState extends State<PutApp> {
       throw StateError('Сервер не вернул токен доступа');
     }
     _apiClient.options.headers['Authorization'] = 'Bearer $accessToken';
+    final refreshToken = response.data?['refresh_token'];
+    _refreshToken = refreshToken is String ? refreshToken : null;
   }
 
   Future<List<City>> _loadCities() async {
@@ -250,7 +294,7 @@ class _PutAppState extends State<PutApp> {
   /// Step 6: publishes the trip or saves it as a draft ("Сохранить шаблон",
   /// listed in "Мои поездки" → drafts), then starts the wizard over.
   Future<void> _createTrip({required bool publish}) async {
-    final json = await _postTrip(
+    final json = await _postJson(
       '/trips',
       _tripDraft.toCreateTripJson(publish: publish),
     );
@@ -265,7 +309,7 @@ class _PutAppState extends State<PutApp> {
     DateTime? arrival, {
     required bool publish,
   }) async {
-    final json = await _postTrip('/trips/${source.id}/reverse', {
+    final json = await _postJson('/trips/${source.id}/reverse', {
       'departure_at': departure.toUtc().toIso8601String(),
       if (arrival != null) 'arrival_at': arrival.toUtc().toIso8601String(),
       'publish': publish,
@@ -286,7 +330,7 @@ class _PutAppState extends State<PutApp> {
   }
 
   /// POST that turns the backend's error body into [DriverApiException].
-  Future<Map<String, dynamic>> _postTrip(
+  Future<Map<String, dynamic>> _postJson(
     String path,
     Map<String, dynamic> body,
   ) async {
@@ -307,6 +351,128 @@ class _PutAppState extends State<PutApp> {
       }
       rethrow;
     }
+  }
+
+  Future<DriverProfile> _loadProfile() async {
+    final response = await _apiClient.get<Map<String, dynamic>>('/me');
+    return DriverProfile.fromJson(
+      response.data!,
+      mediaBaseUrl: AppConfig.apiBaseUrl,
+    );
+  }
+
+  Future<int> _loadUnreadNotifications() async {
+    final response = await _apiClient.get<Map<String, dynamic>>(
+      '/notifications/unread-count',
+    );
+    return response.data?['unread'] as int? ?? 0;
+  }
+
+  /// Revokes the refresh token (best effort) and forgets the session.
+  Future<void> _logout() async {
+    final refreshToken = _refreshToken;
+    if (refreshToken != null) {
+      try {
+        await _apiClient.post<void>(
+          '/auth/logout',
+          data: {'refresh_token': refreshToken},
+        );
+      } on DioException {
+        // Signing out locally still works without the network.
+      }
+    }
+    _refreshToken = null;
+    _apiClient.options.headers.remove('Authorization');
+    _tripDraft.reset();
+    _router.go('/sign-in');
+  }
+
+  /// Driver's bottom bar: only "+" and "Профиль" have screens so far.
+  void _openDriverTab(BuildContext context, DriverTab tab) {
+    switch (tab) {
+      case DriverTab.create:
+        context.push('/driver/trips/new');
+      case DriverTab.profile:
+        context.go('/driver/profile');
+      case DriverTab.home || DriverTab.orders || DriverTab.chats:
+        _comingSoon();
+    }
+  }
+
+  void _comingSoon() {
+    _messengerKey.currentState
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('Раздел появится в следующей версии')),
+      );
+  }
+
+  Future<List<CatalogItem>> _loadBrands() async {
+    final response = await _apiClient.get<List<dynamic>>('/cars/brands');
+    return [
+      for (final item in response.data ?? const [])
+        CatalogItem.fromJson(item as Map<String, dynamic>),
+    ];
+  }
+
+  Future<List<CatalogItem>> _loadModels(int brandId) async {
+    final response = await _apiClient.get<List<dynamic>>(
+      '/cars/brands/$brandId/models',
+    );
+    return [
+      for (final item in response.data ?? const [])
+        CatalogItem.fromJson(item as Map<String, dynamic>),
+    ];
+  }
+
+  final _imagePicker = ImagePicker();
+
+  Future<PickedPhoto?> _pickPhoto(PhotoSource source) async {
+    final file = await _imagePicker.pickImage(
+      source: source == PhotoSource.camera
+          ? ImageSource.camera
+          : ImageSource.gallery,
+      imageQuality: 88,
+      maxWidth: 1600,
+    );
+    if (file == null) return null;
+    return PickedPhoto(bytes: await file.readAsBytes(), fileName: file.name);
+  }
+
+  /// `POST /cars`, then the photo and the СТС. The car exists once the first
+  /// call succeeds, so a failed upload is reported but does not undo it.
+  Future<void> _createVehicle(NewVehicle vehicle) async {
+    final car = await _postJson('/cars', vehicle.toJson());
+    final id = car['id'] as String;
+    var uploadsFailed = false;
+    for (final (path, photo) in [
+      ('/cars/$id/photo', vehicle.photo),
+      ('/cars/$id/sts', vehicle.sts),
+    ]) {
+      if (photo == null) continue;
+      try {
+        await _apiClient.put<void>(
+          path,
+          data: FormData.fromMap({
+            'file': MultipartFile.fromBytes(
+              photo.bytes,
+              filename: photo.fileName,
+            ),
+          }),
+        );
+      } on DioException {
+        uploadsFailed = true;
+      }
+    }
+    _messengerKey.currentState?.showSnackBar(
+      SnackBar(
+        content: Text(
+          uploadsFailed
+              ? 'ТС добавлено, но фото не загрузилось — попробуйте позже'
+              : 'ТС добавлено',
+        ),
+      ),
+    );
   }
 
   Future<PublishLimits> _loadLimits(DateTime day) async {
