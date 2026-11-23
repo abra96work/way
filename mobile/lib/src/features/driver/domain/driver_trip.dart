@@ -21,9 +21,19 @@ class DriverTrip {
     this.parcelSizes = const [],
     this.carPlate,
     this.returnOfTripId,
+    this.number,
+    this.status = TripStatus.published,
+    this.seatsTotal = 0,
+    this.seatsAvailable = 0,
+    this.requestsCount = 0,
+    this.requestAvatars = const [],
   });
 
-  factory DriverTrip.fromJson(Map<String, dynamic> json) {
+  /// [mediaBaseUrl] turns relative `/media/...` avatar paths into URLs.
+  factory DriverTrip.fromJson(
+    Map<String, dynamic> json, {
+    String mediaBaseUrl = '',
+  }) {
     int driverPrice(Object? price) =>
         (price as Map<String, dynamic>)['driver_price'] as int;
     final car = json['car'] as Map<String, dynamic>;
@@ -61,6 +71,18 @@ class DriverTrip {
           ? BookingMode.instant
           : BookingMode.manual,
       returnOfTripId: json['return_of_trip_id'] as String?,
+      number: json['number'] as int?,
+      status: TripStatus.values.firstWhere(
+        (s) => s.name == json['status'],
+        orElse: () => TripStatus.published,
+      ),
+      seatsTotal: json['seats_total'] as int? ?? 0,
+      seatsAvailable: json['seats_available'] as int? ?? 0,
+      requestsCount: (json['requests'] as Map?)?['count'] as int? ?? 0,
+      requestAvatars: [
+        for (final a in (json['requests'] as Map?)?['avatars'] as List? ?? [])
+          '$mediaBaseUrl$a',
+      ],
     );
   }
 
@@ -88,6 +110,16 @@ class DriverTrip {
 
   bool get isReturnTrip => returnOfTripId != null;
 
+  /// "Заказ №1231".
+  final int? number;
+  final TripStatus status;
+  final int seatsTotal;
+  final int seatsAvailable;
+
+  /// Active requests and bookings (only in "Мои заказы").
+  final int requestsCount;
+  final List<String> requestAvatars;
+
   /// Stops of the way back.
   List<String> get reversedStops => stops.reversed.toList();
 
@@ -97,6 +129,9 @@ class DriverTrip {
     return segmentPrices[(last - to, last - from)];
   }
 }
+
+/// `status` of `TripRead`; "completed" is computed by the backend.
+enum TripStatus { draft, published, completed, cancelled }
 
 /// What the driver is about to publish, for the "Опубликовать поездку?" sheet.
 @immutable

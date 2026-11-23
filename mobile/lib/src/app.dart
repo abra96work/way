@@ -24,6 +24,7 @@ import 'features/driver/presentation/create_trip/route_step_page.dart';
 import 'features/driver/presentation/create_trip/trip_published_page.dart';
 import 'features/driver/presentation/create_trip/trip_type_step_page.dart';
 import 'features/driver/presentation/profile/driver_profile_page.dart';
+import 'features/driver/presentation/trips/driver_trips_page.dart';
 import 'features/driver/presentation/vehicles/add_vehicle_page.dart';
 import 'features/driver/presentation/vehicles/catalog_picker_sheet.dart';
 import 'features/driver/presentation/vehicles/vehicles_page.dart';
@@ -134,6 +135,16 @@ class _PutAppState extends State<PutApp> {
           ),
         ),
         GoRoute(
+          path: '/driver/trips',
+          builder: (context, state) => DriverTripsPage(
+            loadTrips: _loadDriverTrips,
+            onCreate: () => context.push('/driver/trips/new'),
+            onTab: (tab) => _openDriverTab(context, tab),
+            // The trip screen with requests comes next.
+            onOpenTrip: (_) => _comingSoon(),
+          ),
+        ),
+        GoRoute(
           path: '/driver/cars/new',
           builder: (context, state) => AddVehiclePage(
             loadBrands: _loadBrands,
@@ -214,7 +225,7 @@ class _PutAppState extends State<PutApp> {
               trip: trip,
               loadLimits: _loadLimits,
               // "Мои поездки" screens come next; until then start a new trip.
-              onMyTrips: () => context.go('/driver/trips/new'),
+              onMyTrips: () => context.go('/driver/trips'),
               onCreateReverse: trip.isReturnTrip
                   ? null
                   : () => context.push('/driver/trips/reverse', extra: trip),
@@ -387,14 +398,16 @@ class _PutAppState extends State<PutApp> {
     _router.go('/sign-in');
   }
 
-  /// Driver's bottom bar: only "+" and "Профиль" have screens so far.
+  /// Driver's bottom bar: "+", "Мои заказы" and "Профиль" have screens.
   void _openDriverTab(BuildContext context, DriverTab tab) {
     switch (tab) {
       case DriverTab.create:
         context.push('/driver/trips/new');
       case DriverTab.profile:
         context.go('/driver/profile');
-      case DriverTab.home || DriverTab.orders || DriverTab.chats:
+      case DriverTab.orders:
+        context.go('/driver/trips');
+      case DriverTab.home || DriverTab.chats:
         _comingSoon();
     }
   }
@@ -405,6 +418,29 @@ class _PutAppState extends State<PutApp> {
       ..showSnackBar(
         const SnackBar(content: Text('Раздел появится в следующей версии')),
       );
+  }
+
+  /// "Мои заказы": active trips with templates (drafts), or finished ones
+  /// with cancelled.
+  Future<List<DriverTrip>> _loadDriverTrips(DriverTripsTab tab) async {
+    final statuses = tab == DriverTripsTab.active
+        ? const ['active', 'draft']
+        : const ['completed', 'cancelled'];
+    final lists = await Future.wait([
+      for (final status in statuses)
+        _apiClient.get<List<dynamic>>(
+          '/trips/mine',
+          queryParameters: {'status': status},
+        ),
+    ]);
+    return [
+      for (final response in lists)
+        for (final item in response.data ?? const [])
+          DriverTrip.fromJson(
+            item as Map<String, dynamic>,
+            mediaBaseUrl: AppConfig.apiBaseUrl,
+          ),
+    ];
   }
 
   Future<List<CatalogItem>> _loadBrands() async {
