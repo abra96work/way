@@ -55,12 +55,12 @@ class Trip(TimestampMixin, Base):
     __tablename__ = "trips"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    driver_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
-    )
+    driver_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     car_id: Mapped[UUID] = mapped_column(ForeignKey("cars.id", ondelete="RESTRICT"), index=True)
     status: Mapped[TripStatus] = mapped_column(_enum(TripStatus, "trip_status"), index=True)
     departure_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # Approximate arrival the driver states; informational, optional.
+    arrival_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     seats_total: Mapped[int] = mapped_column(SmallInteger)
     booking_mode: Mapped[BookingMode] = mapped_column(_enum(BookingMode, "booking_mode"))
     full_price: Mapped[int] = mapped_column(Integer)
