@@ -2,12 +2,25 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'core/config/app_config.dart';
 import 'core/network/api_client.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/legal_document_page.dart';
 import 'features/auth/presentation/phone_login_page.dart';
 import 'features/auth/presentation/profile_registration_page.dart';
 import 'features/auth/presentation/sms_code_page.dart';
+import 'features/driver/domain/driver_api_exception.dart';
+import 'features/driver/domain/driver_car.dart';
+import 'features/driver/domain/driver_trip.dart';
+import 'features/driver/domain/trip_draft.dart';
+import 'features/driver/presentation/create_trip/booking_step_page.dart';
+import 'features/driver/presentation/create_trip/car_step_page.dart';
+import 'features/driver/presentation/create_trip/extras_step_page.dart';
+import 'features/driver/presentation/create_trip/price_step_page.dart';
+import 'features/driver/presentation/create_trip/reverse_trip_page.dart';
+import 'features/driver/presentation/create_trip/route_step_page.dart';
+import 'features/driver/presentation/create_trip/trip_published_page.dart';
+import 'features/driver/presentation/create_trip/trip_type_step_page.dart';
 import 'features/onboarding/presentation/city_selection_page.dart';
 import 'features/onboarding/presentation/onboarding_page.dart';
 import 'features/onboarding/presentation/registration_intro_page.dart';
@@ -24,6 +37,8 @@ class PutApp extends StatefulWidget {
 class _PutAppState extends State<PutApp> {
   late final GoRouter _router;
   final _apiClient = createApiClient();
+  final _tripDraft = TripDraft();
+  final _messengerKey = GlobalKey<ScaffoldMessengerState>();
 
   @override
   void initState() {
@@ -97,6 +112,91 @@ class _PutAppState extends State<PutApp> {
           path: '/city-selection',
           builder: (context, state) => const CitySelectionPage(),
         ),
+        // Driver: "Новый заказ" wizard, six steps.
+        GoRoute(
+          path: '/driver/trips/new',
+          builder: (context, state) => TripTypeStepPage(
+            initialType: _tripDraft.vehicleType,
+            onNext: (type) {
+              _tripDraft.vehicleType = type;
+              context.push('/driver/trips/new/route');
+            },
+          ),
+        ),
+        GoRoute(
+          path: '/driver/trips/new/route',
+          builder: (context, state) => RouteStepPage(
+            draft: _tripDraft,
+            loadCities: _loadCities,
+            onNext: () => context.push('/driver/trips/new/prices'),
+          ),
+        ),
+        GoRoute(
+          path: '/driver/trips/new/prices',
+          builder: (context, state) => PriceStepPage(
+            draft: _tripDraft,
+            onNext: () => context.push('/driver/trips/new/car'),
+          ),
+        ),
+        GoRoute(
+          path: '/driver/trips/new/car',
+          builder: (context, state) => CarStepPage(
+            draft: _tripDraft,
+            loadCars: _loadCars,
+            onNext: () => context.push('/driver/trips/new/extras'),
+            // "Добавить авто" appears once the "Мои автомобили" screens exist.
+          ),
+        ),
+        GoRoute(
+          path: '/driver/trips/new/extras',
+          builder: (context, state) => ExtrasStepPage(
+            draft: _tripDraft,
+            onNext: () => context.push('/driver/trips/new/booking'),
+          ),
+        ),
+        GoRoute(
+          path: '/driver/trips/new/booking',
+          builder: (context, state) => BookingStepPage(
+            draft: _tripDraft,
+            onPublish: () => _createTrip(publish: true),
+            onSaveTemplate: () => _createTrip(publish: false),
+          ),
+        ),
+        GoRoute(
+          path: '/driver/trips/published',
+          redirect: (context, state) =>
+              state.extra is DriverTrip ? null : '/driver/trips/new',
+          builder: (context, state) {
+            final trip = state.extra! as DriverTrip;
+            return TripPublishedPage(
+              trip: trip,
+              loadLimits: _loadLimits,
+              // "Мои поездки" screens come next; until then start a new trip.
+              onMyTrips: () => context.go('/driver/trips/new'),
+              onCreateReverse: trip.isReturnTrip
+                  ? null
+                  : () => context.push('/driver/trips/reverse', extra: trip),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/driver/trips/reverse',
+          redirect: (context, state) =>
+              state.extra is DriverTrip ? null : '/driver/trips/new',
+          builder: (context, state) {
+            final source = state.extra! as DriverTrip;
+            return ReverseTripPage(
+              source: source,
+              onSubmit: (departure, arrival, {required publish}) =>
+                  _createReverseTrip(
+                    source,
+                    departure,
+                    arrival,
+                    publish: publish,
+                  ),
+            );
+          },
+        ),
       ],
     );
   }
@@ -105,6 +205,7 @@ class _PutAppState extends State<PutApp> {
   void dispose() {
     _router.dispose();
     _apiClient.close(force: true);
+    _tripDraft.dispose();
     super.dispose();
   }
 
@@ -127,6 +228,98 @@ class _PutAppState extends State<PutApp> {
     _apiClient.options.headers['Authorization'] = 'Bearer $accessToken';
   }
 
+  Future<List<City>> _loadCities() async {
+    final response = await _apiClient.get<List<dynamic>>('/cities');
+    return [
+      for (final item in response.data ?? const [])
+        City.fromJson(item as Map<String, dynamic>),
+    ];
+  }
+
+  Future<List<DriverCar>> _loadCars() async {
+    final response = await _apiClient.get<List<dynamic>>('/cars');
+    return [
+      for (final item in response.data ?? const [])
+        DriverCar.fromJson(
+          item as Map<String, dynamic>,
+          mediaBaseUrl: AppConfig.apiBaseUrl,
+        ),
+    ];
+  }
+
+  /// Step 6: publishes the trip or saves it as a draft ("Сохранить шаблон",
+  /// listed in "Мои поездки" → drafts), then starts the wizard over.
+  Future<void> _createTrip({required bool publish}) async {
+    final json = await _postTrip(
+      '/trips',
+      _tripDraft.toCreateTripJson(publish: publish),
+    );
+    _tripDraft.reset();
+    _afterCreate(DriverTrip.fromJson(json), publish: publish);
+  }
+
+  /// "Обратное направление": the backend mirrors [source] with a new time.
+  Future<void> _createReverseTrip(
+    DriverTrip source,
+    DateTime departure,
+    DateTime? arrival, {
+    required bool publish,
+  }) async {
+    final json = await _postTrip('/trips/${source.id}/reverse', {
+      'departure_at': departure.toUtc().toIso8601String(),
+      if (arrival != null) 'arrival_at': arrival.toUtc().toIso8601String(),
+      'publish': publish,
+    });
+    _afterCreate(DriverTrip.fromJson(json), publish: publish);
+  }
+
+  /// Published → "Заказ опубликован!"; template → back to a new trip.
+  void _afterCreate(DriverTrip trip, {required bool publish}) {
+    if (publish) {
+      _router.go('/driver/trips/published', extra: trip);
+      return;
+    }
+    _router.go('/driver/trips/new');
+    _messengerKey.currentState?.showSnackBar(
+      const SnackBar(content: Text('Шаблон сохранён в черновиках')),
+    );
+  }
+
+  /// POST that turns the backend's error body into [DriverApiException].
+  Future<Map<String, dynamic>> _postTrip(
+    String path,
+    Map<String, dynamic> body,
+  ) async {
+    try {
+      final response = await _apiClient.post<Map<String, dynamic>>(
+        path,
+        data: body,
+      );
+      return response.data!;
+    } on DioException catch (e) {
+      final error = e.response?.data;
+      if (error is Map && error['message'] is String) {
+        throw DriverApiException(
+          error['message'] as String,
+          code: error['code'] as String?,
+          details: error['details'],
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Future<PublishLimits> _loadLimits(DateTime day) async {
+    final date =
+        '${day.year}-${day.month.toString().padLeft(2, '0')}-'
+        '${day.day.toString().padLeft(2, '0')}';
+    final response = await _apiClient.get<Map<String, dynamic>>(
+      '/trips/limits',
+      queryParameters: {'date': date},
+    );
+    return PublishLimits.fromJson(response.data!);
+  }
+
   Future<void> _saveProfile(String name, SelectedProfilePhoto photo) async {
     await _apiClient.patch<void>(
       '/me',
@@ -145,6 +338,7 @@ class _PutAppState extends State<PutApp> {
     return MaterialApp.router(
       title: 'Путь',
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: _messengerKey,
       theme: AppTheme.light,
       routerConfig: _router,
     );
