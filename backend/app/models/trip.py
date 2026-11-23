@@ -55,6 +55,8 @@ class Trip(TimestampMixin, Base):
     __tablename__ = "trips"
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    # Human-friendly "Заказ №1231": increasing across all trips.
+    number: Mapped[int | None] = mapped_column(Integer, unique=True)
     driver_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     car_id: Mapped[UUID] = mapped_column(ForeignKey("cars.id", ondelete="RESTRICT"), index=True)
     status: Mapped[TripStatus] = mapped_column(_enum(TripStatus, "trip_status"), index=True)

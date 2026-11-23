@@ -200,8 +200,16 @@ class ParcelPriceRead(ParcelSizeRead):
     price: PriceRead
 
 
+class TripRequests(BaseModel):
+    """Bookings of the driver's own trip, for the «Мои заказы» card."""
+
+    count: int = Field(description="Активные заявки и брони (места и посылки)")
+    avatars: list[str] = Field(description="Аватары первых пассажиров, не больше двух")
+
+
 class TripRead(BaseModel):
     id: UUID
+    number: int | None = Field(default=None, description="Номер заказа для показа")
     status: TripStatusView
     driver: RatedUser
     car: CarRead
@@ -221,3 +229,6 @@ class TripRead(BaseModel):
     is_editable: bool = Field(description="Можно менять маршрут, время и цены")
     created_at: datetime
     published_at: datetime | None
+    requests: TripRequests | None = Field(
+        default=None, description="Только в «Мои поездки» водителя (GET /trips/mine)"
+    )

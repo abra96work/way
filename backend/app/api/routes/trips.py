@@ -62,7 +62,12 @@ async def my_trips(
 ) -> list[TripRead]:
     """«Мои поездки» водителя. `status`: active | completed | draft | cancelled."""
     trips = await trip_service.list_driver_trips(db, user, status_filter)
-    return [await trip_service.to_read(db, trip) for trip in trips]
+    result = []
+    for trip in trips:
+        read = await trip_service.to_read(db, trip)
+        read.requests = await trip_service.requests_summary(db, trip)
+        result.append(read)
+    return result
 
 
 @router.get("/limits", response_model=PublishLimits, responses=_errors)

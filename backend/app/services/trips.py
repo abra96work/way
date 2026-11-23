@@ -42,6 +42,7 @@ from app.schemas.trip import (
     TripCreate,
     TripListFilter,
     TripRead,
+    TripRequests,
     TripStatusView,
     TripWrite,
 )
@@ -53,6 +54,7 @@ from app.services.availability import (
     segment_occupancy,
 )
 from app.services.cars import to_read as car_to_read
+from app.services.media import media_url
 from app.services.notifications import NotificationType, notify
 from app.services.pricing import route_price, with_commission
 from app.services.rating import driver_stats
@@ -190,6 +192,7 @@ async def to_read(db: AsyncSession, trip: Trip) -> TripRead:
     stats = (await driver_stats(db, [trip.driver_id]))[trip.driver_id]
     return TripRead(
         id=trip.id,
+        number=trip.number,
         status=effective_status(trip),
         driver=to_rated(trip.driver, stats),
         car=car_to_read(trip.car),
@@ -230,6 +233,24 @@ async def to_read(db: AsyncSession, trip: Trip) -> TripRead:
         created_at=as_utc(trip.created_at),
         published_at=as_utc(trip.published_at) if trip.published_at else None,
     )
+
+
+async def requests_summary(db: AsyncSession, trip: Trip) -> TripRequests:
+    """Active bookings of the trip and the first passengers' avatars."""
+    bookings = list(
+        await db.scalars(
+            select(Booking)
+            .where(Booking.trip_id == trip.id, Booking.status.in_(ACTIVE_BOOKING_STATUSES))
+            .options(joinedload(Booking.passenger))
+            .order_by(Booking.created_at)
+        )
+    )
+    avatars: list[str] = []
+    for booking in bookings:
+        url = media_url(booking.passenger.avatar_path)
+        if url and url not in avatars:
+            avatars.append(url)
+    return TripRequests(count=len(bookings), avatars=avatars[:2])
 
 
 # ---------- validation ----------
@@ -436,6 +457,7 @@ async def create_trip(
 ) -> Trip:
     await _check_payload(db, driver, payload)
     trip = Trip(driver_id=driver.id, status=TripStatus.draft, return_of_trip_id=return_of)
+    trip.number = (await db.scalar(select(func.max(Trip.number))) or 1000) + 1
     _apply(trip, payload)
     db.add(trip)
     if payload.publish:
