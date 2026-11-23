@@ -52,6 +52,7 @@ class CarRead(BaseModel):
     seats: int = Field(description="Пассажирских мест (без водителя)")
     plate: str | None
     photo_url: str | None
+    has_sts: bool = Field(default=False, description="Загружено фото СТС (сам файл не отдаётся)")
     created_at: datetime
 
 

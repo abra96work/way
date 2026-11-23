@@ -75,3 +75,14 @@ async def upload_car_photo(
 ) -> CarRead:
     """Фото автомобиля: JPEG/PNG/WebP до 5 МБ."""
     return car_service.to_read(await car_service.set_photo(db, user, car_id, file))
+
+
+@router.put("/{car_id}/sts", response_model=CarRead, responses=_errors)
+async def upload_car_sts(
+    car_id: UUID, user: CurrentUser, db: DbSession, file: ImageFile
+) -> CarRead:
+    """Фото СТС (свидетельства о регистрации): JPEG/PNG/WebP до 5 МБ.
+
+    Хранится только для водителя, другим пользователям не отдаётся и не проверяется.
+    """
+    return car_service.to_read(await car_service.set_sts_photo(db, user, car_id, file))

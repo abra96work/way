@@ -147,3 +147,19 @@ async def test_car_photo(client: AsyncClient, auth: dict) -> None:
     photo_url = response.json()["photo_url"]
     assert photo_url.startswith("/media/cars/")
     assert (await client.get(photo_url)).status_code == 200
+
+
+async def test_car_sts_is_stored_but_not_exposed(client: AsyncClient, auth: dict) -> None:
+    car = await _create_car(client, auth["headers"])
+    assert car["has_sts"] is False
+
+    response = await client.put(
+        f"/api/v1/cars/{car['id']}/sts",
+        headers=auth["headers"],
+        files={"file": ("sts.png", PNG_1PX, "image/png")},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["has_sts"] is True
+    assert "sts" not in str({k: v for k, v in body.items() if k != "has_sts"})
