@@ -66,6 +66,9 @@ class PaymentInfo(BaseModel):
     pay_online: int = Field(description="Комиссия сервиса, оплачивается в приложении")
     pay_to_driver: int = Field(description="Оплачивается водителю")
     is_paid: bool
+    is_refunded: bool = Field(
+        default=False, description="Комиссия возвращена после отмены бронирования"
+    )
 
 
 class BookingTrip(BaseModel):

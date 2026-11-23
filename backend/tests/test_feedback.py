@@ -99,6 +99,18 @@ async def test_two_passenger_violations_block_account(client: AsyncClient, world
     assert denied["code"] == "user_blocked"
 
 
+async def test_paid_booking_cancellation_refunds_commission(
+    client: AsyncClient, world: dict
+) -> None:
+    booking = await registered_booking(client, world, world["trips"][0], world["passenger"])
+    await act(client, world["passenger"], booking, "pay")
+
+    cancelled = await act(client, world["passenger"], booking, "cancel")
+
+    assert cancelled["booking"]["status"] == "cancelled"
+    assert cancelled["booking"]["payment"]["is_refunded"] is True
+
+
 async def test_instant_booking_counts_as_registered(client: AsyncClient) -> None:
     driver = await make_driver(client, "+79005550003", "Пётр")
     trip = await publish(client, driver, booking_mode="instant")

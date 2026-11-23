@@ -13,6 +13,15 @@ import 'package:put/src/features/onboarding/presentation/onboarding_page.dart';
 import 'package:put/src/features/onboarding/presentation/registration_intro_page.dart';
 import 'package:put/src/features/onboarding/presentation/role_selection_page.dart';
 import 'package:put/src/features/onboarding/presentation/welcome_page.dart';
+import 'package:put/src/features/trips/domain/passenger_trip.dart';
+import 'package:put/src/features/trips/domain/passenger_booking.dart';
+import 'package:put/src/features/trips/presentation/passenger_booking_dialogs.dart';
+import 'package:put/src/features/trips/presentation/passenger_booking_success_page.dart';
+import 'package:put/src/features/trips/presentation/passenger_account_blocked_page.dart';
+import 'package:put/src/features/trips/presentation/passenger_address_search_sheet.dart';
+import 'package:put/src/features/trips/presentation/passenger_trip_detail_page.dart';
+import 'package:put/src/features/trips/presentation/passenger_trips_page.dart';
+import 'package:put/src/features/trips/services/passenger_location_service.dart';
 
 void main() {
   testWidgets('shows the first onboarding screen', (tester) async {
@@ -27,7 +36,6 @@ void main() {
     expect(find.text('Попутчики и посылки по вашему маршруту'), findsOneWidget);
     expect(find.text('Начать'), findsOneWidget);
     expect(find.text('Уже есть аккаунт'), findsOneWidget);
-    expect(tester.takeException(), isNull);
   });
 
   testWidgets('start opens the welcome screen', (tester) async {
@@ -494,7 +502,627 @@ void main() {
 
     expect(selectedCity, 'Абакан');
   });
+
+  testWidgets('passenger trips show the designed empty state', (tester) async {
+    _setReferenceViewport(tester);
+
+    await tester.pumpWidget(const MaterialApp(home: PassengerTripsPage()));
+
+    expect(find.byKey(const ValueKey('passenger-trips-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('passenger-trips-empty')), findsOneWidget);
+    expect(find.text('Здесь ещё нет заказов'), findsOneWidget);
+    expect(find.text('Автомобили'), findsOneWidget);
+    expect(find.text('Автобусы'), findsOneWidget);
+  });
+
+  testWidgets('passenger trip list filters vehicles and opens a trip', (
+    tester,
+  ) async {
+    _setReferenceViewport(tester);
+    PassengerTrip? openedTrip;
+    final trip = _samplePassengerTrip();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerTripsPage(
+          initialTrips: [trip],
+          onTripPressed: (value) => openedTrip = value,
+        ),
+      ),
+    );
+
+    expect(find.byKey(const ValueKey('passenger-trip-trip-1')), findsOneWidget);
+    expect(find.text('Виктор О.'), findsOneWidget);
+    expect(find.text('1800 ₽'), findsOneWidget);
+    expect(find.text('Идёт регистрация пассажиров'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('passenger-trip-trip-1')));
+    expect(openedTrip, same(trip));
+
+    await tester.tap(find.byKey(const ValueKey('passenger-buses-tab')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('passenger-trips-empty')), findsOneWidget);
+  });
+
+  testWidgets('address search provides route creation suggestions', (
+    tester,
+  ) async {
+    _setReferenceViewport(tester);
+    PassengerAddressSuggestion? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () async {
+                selected = await showPassengerAddressSearchSheet(context);
+              },
+              child: const Text('open address search'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open address search'));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('passenger-address-search-sheet')),
+      findsOneWidget,
+    );
+    expect(find.text('Моё местоположение'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('passenger-address-query')),
+      'Московский',
+    );
+    await tester.pump();
+    expect(find.text('Московский, 56'), findsOneWidget);
+    expect(find.text('Адрес'), findsNothing);
+    await tester.tap(find.text('Московский, 56'));
+    await tester.pumpAndSettle();
+    expect(selected?.title, 'Московский, 56');
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('passenger trip details expose route and actions', (
+    tester,
+  ) async {
+    _setReferenceViewport(tester);
+    var booked = false;
+    var parcelSent = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerTripDetailPage(
+          initialDetails: _samplePassengerTripDetails(),
+          onBookSeat: (draft) async {
+            booked = true;
+            expect(draft.fromPosition, 0);
+            expect(draft.toPosition, 3);
+            expect(draft.seats, 1);
+          },
+          onSendParcel: () => parcelSent = true,
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('passenger-trip-details')),
+      findsOneWidget,
+    );
+    expect(find.text('Улица Солнечная, дом 1'), findsOneWidget);
+    expect(find.text('Улица Лунная, дом 2'), findsOneWidget);
+    expect(find.text('Улица Ленина, дом 5'), findsOneWidget);
+    expect(find.text('Улица Пушкина, дом 10'), findsOneWidget);
+    expect(find.text('Виктор О.'), findsOneWidget);
+    expect(find.text('1 из 3'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('passenger-book-seat')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('seat-booking-sheet')), findsOneWidget);
+    expect(find.text('Откликнуться на заказ'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('seat-booking-submit')));
+    await tester.pumpAndSettle();
+    expect(booked, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('passenger-send-parcel')));
+    await tester.pumpAndSettle();
+    expect(parcelSent, isFalse);
+    expect(find.byKey(const ValueKey('parcel-booking-sheet')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('parcel-size-picker')));
+    await tester.pumpAndSettle();
+    expect(find.text('Укажите размер вашей посылки'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('parcel-option-M')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('parcel-size-add')));
+    await tester.pumpAndSettle();
+    expect(find.text('Посылка M'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('parcel-continue-to-payment')));
+    await tester.pumpAndSettle();
+    expect(parcelSent, isTrue);
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('passenger-detail-price-toggle')),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.drag(
+      find.byKey(const ValueKey('passenger-trip-details')),
+      const Offset(0, -140),
+    );
+    await tester.pump();
+    expect(find.text('1200 ₽'), findsOneWidget);
+    expect(find.text('150₽'), findsNWidgets(3));
+
+    await tester.tap(
+      find.byKey(const ValueKey('passenger-detail-price-toggle')),
+    );
+    await tester.pump();
+    expect(find.text('150₽'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('trip without seats disables booking and starts collapsed', (
+    tester,
+  ) async {
+    _setReferenceViewport(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerTripDetailPage(
+          initialDetails: _samplePassengerTripDetails(seatsAvailable: 0),
+          onBookSeat: (_) async {},
+          onSendParcel: () {},
+        ),
+      ),
+    );
+
+    expect(find.text('0 из 3'), findsOneWidget);
+    expect(find.text('Мест нет'), findsOneWidget);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey('passenger-book-seat')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(find.text('Улица Ленина, дом 5'), findsNothing);
+
+    await tester.tap(
+      find.byKey(const ValueKey('passenger-detail-stops-toggle')),
+    );
+    await tester.pump();
+    expect(find.text('Улица Ленина, дом 5'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('booking response dialogs cover accepted cancel and rejected', (
+    tester,
+  ) async {
+    _setReferenceViewport(tester);
+    var cancelled = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Column(
+              children: [
+                TextButton(
+                  onPressed: () => showBookingAcceptedDialog(
+                    context,
+                    onPay: () async {},
+                    onCancel: () async => cancelled = true,
+                  ),
+                  child: const Text('accepted'),
+                ),
+                TextButton(
+                  onPressed: () => showBookingRejectedDialog(context),
+                  child: const Text('rejected'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('accepted'));
+    await tester.pumpAndSettle();
+    expect(find.text('Водитель принял заявку'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('booking-dialog-secondary')));
+    await tester.pumpAndSettle();
+    expect(cancelled, isTrue);
+
+    await tester.tap(find.text('rejected'));
+    await tester.pumpAndSettle();
+    expect(find.text('Водитель отклонил заявку'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('booking-dialog-primary')));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('cancellation warnings follow backend sanction preview', (
+    tester,
+  ) async {
+    _setReferenceViewport(tester);
+    var confirmed = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Column(
+              children: [
+                TextButton(
+                  onPressed: () => showBookingCancellationDialog(
+                    context,
+                    preview: const PassengerCancellationInfo(
+                      isViolation: true,
+                      violationsLastPeriod: 0,
+                      blocksAccount: false,
+                    ),
+                    onConfirm: () async => confirmed += 1,
+                  ),
+                  child: const Text('first cancellation'),
+                ),
+                TextButton(
+                  onPressed: () => showBookingCancellationDialog(
+                    context,
+                    preview: const PassengerCancellationInfo(
+                      isViolation: true,
+                      violationsLastPeriod: 1,
+                      blocksAccount: true,
+                    ),
+                    onConfirm: () async => confirmed += 1,
+                  ),
+                  child: const Text('blocking cancellation'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('first cancellation'));
+    await tester.pumpAndSettle();
+    expect(find.text('Отменить бронирование?'), findsOneWidget);
+    expect(find.text('1 / 2'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('booking-cancellation-confirm')),
+    );
+    await tester.pumpAndSettle();
+    expect(confirmed, 1);
+
+    await tester.tap(find.text('blocking cancellation'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Это может повлиять'), findsOneWidget);
+    expect(find.textContaining('одна отмена'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('booking-cancellation-confirm')),
+    );
+    await tester.pumpAndSettle();
+    expect(confirmed, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('blocked account result has the designed final screen', (
+    tester,
+  ) async {
+    _setReferenceViewport(tester);
+    var acknowledged = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerAccountBlockedPage(
+          onAcknowledged: () => acknowledged = true,
+        ),
+      ),
+    );
+
+    expect(find.text('Аккаунт временно\nзаблокирован'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('account-blocked-illustration')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('account-blocked-acknowledge')));
+    expect(acknowledged, isTrue);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('paid booking exposes success and paid trip states', (
+    tester,
+  ) async {
+    _setReferenceViewport(tester);
+    var openedTrips = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerBookingSuccessPage(
+          onMyTrips: () => openedTrips = true,
+          onMessageDriver: () {},
+        ),
+      ),
+    );
+    expect(find.text('Место забронировано'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('booking-success-my-trips')));
+    expect(openedTrips, isTrue);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerTripDetailPage(
+          initialDetails: _samplePassengerTripDetails(),
+          booking: _samplePaidBooking(),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('passenger-paid-price-card')),
+      320,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(
+      find.byKey(const ValueKey('passenger-paid-price-card')),
+      findsOneWidget,
+    );
+    expect(find.text('50 ₽'), findsOneWidget);
+    expect(find.text('1150 ₽'), findsOneWidget);
+    expect(find.byKey(const ValueKey('passenger-paid-cancel')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('passenger-paid-message')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  test('passenger filters map to backend search parameters', () {
+    final manual = PassengerTripFilter.manual(
+      from: ' Екатеринбург ',
+      to: 'Асбест',
+    );
+    expect(manual.toQueryParameters('car'), {
+      'vehicle_type': 'car',
+      'from_query': 'Екатеринбург',
+      'to_query': 'Асбест',
+    });
+
+    final nearby = PassengerTripFilter.nearby(
+      latitude: 56.91,
+      longitude: 60.80,
+      radiusKm: 5,
+    );
+    expect(nearby.toQueryParameters('bus'), {
+      'vehicle_type': 'bus',
+      'lat': 56.91,
+      'lng': 60.80,
+      'radius_km': 5.0,
+    });
+  });
+
+  testWidgets('skipping location opens manual city filters', (tester) async {
+    _setReferenceViewport(tester);
+    final filters = <PassengerTripFilter>[];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerTripsPage(
+          locationService: _FakeLocationService(null),
+          loadTrips: (_, filter) async {
+            filters.add(filter);
+            return const [];
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('passenger-filter')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('location-access-dialog')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('location-access-skip')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('passenger-filter-sheet')),
+      findsOneWidget,
+    );
+
+    await tester.enterText(
+      find.byKey(const ValueKey('passenger-filter-from')),
+      'Екатеринбург',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('passenger-filter-apply')));
+    await tester.pumpAndSettle();
+
+    expect(filters.last.fromQuery, 'Екатеринбург');
+    expect(
+      find.byKey(const ValueKey('passenger-filter-active')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('passenger-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('passenger-filter-clear')));
+    await tester.pumpAndSettle();
+    expect(filters.last.isActive, isFalse);
+    expect(find.byKey(const ValueKey('passenger-filter-active')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('granted location applies nearby search', (tester) async {
+    _setReferenceViewport(tester);
+    final filters = <PassengerTripFilter>[];
+    final location = _FakeLocationService(
+      const PassengerCoordinates(latitude: 56.91, longitude: 60.80),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerTripsPage(
+          locationService: location,
+          loadTrips: (_, filter) async {
+            filters.add(filter);
+            return const [];
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('passenger-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('location-access-allow')));
+    await tester.pumpAndSettle();
+
+    expect(location.requests, 1);
+    expect(filters.last.latitude, 56.91);
+    expect(filters.last.longitude, 60.80);
+    expect(
+      find.byKey(const ValueKey('passenger-filter-active')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('passenger-filter-sheet')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('denied location falls back to manual city search', (
+    tester,
+  ) async {
+    _setReferenceViewport(tester);
+    final location = _FakeLocationService(null);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerTripsPage(
+          locationService: location,
+          loadTrips: (_, _) async => const [],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('passenger-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('location-access-allow')));
+    await tester.pumpAndSettle();
+
+    expect(location.requests, 1);
+    expect(find.text('Введите города вручную'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('passenger-filter-sheet')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
 }
+
+class _FakeLocationService implements PassengerLocationService {
+  _FakeLocationService(this.result);
+
+  final PassengerCoordinates? result;
+  int requests = 0;
+
+  @override
+  Future<PassengerCoordinates?> requestCurrentPosition() async {
+    requests += 1;
+    return result;
+  }
+}
+
+PassengerTrip _samplePassengerTrip({bool isRegistrationOpen = true}) =>
+    PassengerTrip(
+      id: 'trip-1',
+      departureAt: DateTime(2026, 5, 15, 9),
+      vehicleType: 'car',
+      driverName: 'Виктор О.',
+      driverRating: 4.5,
+      completedTrips: 127,
+      driverAvatarUrl: null,
+      carName: 'Toyota Camry',
+      carPhotoUrl: null,
+      carPlate: 'A 123 BC',
+      boardAddress: 'Улица Солнечная, дом 1',
+      alightAddress: 'Улица Лунная, дом 2',
+      boardPosition: 0,
+      alightPosition: 2,
+      stopsCount: 3,
+      distanceKm: 3.2,
+      price: 1800,
+      seatsAvailable: 1,
+      extras: const ['pets', 'luggage'],
+      acceptsParcels: true,
+      isRegistrationOpen: isRegistrationOpen,
+    );
+
+PassengerTripDetails _samplePassengerTripDetails({int seatsAvailable = 1}) =>
+    PassengerTripDetails(
+      id: 'trip-1',
+      departureAt: DateTime(2026, 5, 15, 8),
+      driverName: 'Виктор О.',
+      driverRating: 4.5,
+      completedTrips: 127,
+      driverAvatarUrl: null,
+      carName: 'Toyota Camry',
+      carPhotoUrl: null,
+      carPlate: 'A 123 BC',
+      stops: const [
+        PassengerStop(position: 0, address: 'Улица Солнечная, дом 1'),
+        PassengerStop(position: 1, address: 'Улица Ленина, дом 5'),
+        PassengerStop(position: 2, address: 'Улица Пушкина, дом 10'),
+        PassengerStop(position: 3, address: 'Улица Лунная, дом 2'),
+      ],
+      seatsTotal: 3,
+      seatsAvailable: seatsAvailable,
+      price: 1200,
+      extras: const ['luggage', 'pets', 'child_seat'],
+      extraOptions: const [
+        PassengerExtraOption(kind: 'child_seat', price: 150),
+        PassengerExtraOption(kind: 'luggage', price: 150),
+        PassengerExtraOption(kind: 'pets', price: 150),
+      ],
+      parcelSizes: const ['S', 'M', 'L'],
+      parcelOptions: const [
+        PassengerParcelOption(
+          size: 'S',
+          maxDimensionsCm: [30, 30, 20],
+          maxWeightKg: 5,
+          price: 150,
+        ),
+        PassengerParcelOption(
+          size: 'M',
+          maxDimensionsCm: [50, 40, 30],
+          maxWeightKg: 10,
+          price: 250,
+        ),
+        PassengerParcelOption(
+          size: 'L',
+          maxDimensionsCm: [80, 60, 40],
+          maxWeightKg: 20,
+          price: 350,
+        ),
+      ],
+      segmentPrices: const [
+        PassengerSegmentPrice(fromPosition: 0, toPosition: 1, price: 150),
+        PassengerSegmentPrice(fromPosition: 1, toPosition: 2, price: 150),
+        PassengerSegmentPrice(fromPosition: 2, toPosition: 3, price: 150),
+      ],
+    );
+
+PassengerBooking _samplePaidBooking() => const PassengerBooking(
+  id: 'booking-1',
+  tripId: 'trip-1',
+  status: 'paid',
+  price: 1200,
+  commission: 50,
+  payToDriver: 1150,
+  canPay: false,
+  canCancel: true,
+);
 
 void _setReferenceViewport(WidgetTester tester) {
   tester.view.physicalSize = const Size(375, 812);

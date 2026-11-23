@@ -132,6 +132,9 @@ async def to_read(
     active = booking.status in ACTIVE_BOOKING_STATUSES
     is_passenger = viewer is None or viewer.id == booking.passenger_id
     stops = trip.stops
+    payment = await db.scalar(
+        select(Payment).where(Payment.booking_id == booking.id).order_by(Payment.created_at.desc())
+    )
     return BookingRead(
         id=booking.id,
         status=status,
@@ -166,6 +169,7 @@ async def to_read(
             pay_online=booking.commission,
             pay_to_driver=booking.driver_price,
             is_paid=booking.paid_at is not None,
+            is_refunded=payment is not None and payment.status == "refunded",
         ),
         can_pay=is_passenger and booking.status == BookingStatus.awaiting_payment,
         can_cancel=is_passenger and active and not _departed(trip),
@@ -392,6 +396,11 @@ async def cancel(
     booking.status = BookingStatus.cancelled
     booking.cancelled_by = CancelledBy.passenger
     booking.cancelled_at = utcnow()
+    payment = await db.scalar(
+        select(Payment).where(Payment.booking_id == booking.id).order_by(Payment.created_at.desc())
+    )
+    if payment is not None and payment.status == "succeeded":
+        payment.status = "refunded"
     notify(
         db,
         trip.driver_id,
