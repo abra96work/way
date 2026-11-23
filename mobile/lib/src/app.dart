@@ -35,6 +35,14 @@ import 'features/onboarding/presentation/onboarding_page.dart';
 import 'features/onboarding/presentation/registration_intro_page.dart';
 import 'features/onboarding/presentation/role_selection_page.dart';
 import 'features/onboarding/presentation/welcome_page.dart';
+import 'features/trips/domain/passenger_trip.dart';
+import 'features/trips/domain/passenger_booking.dart';
+import 'features/trips/presentation/passenger_booking_dialogs.dart';
+import 'features/trips/presentation/passenger_booking_success_page.dart';
+import 'features/trips/presentation/passenger_account_blocked_page.dart';
+import 'features/trips/presentation/passenger_address_search_sheet.dart';
+import 'features/trips/presentation/passenger_trip_detail_page.dart';
+import 'features/trips/presentation/passenger_trips_page.dart';
 
 class PutApp extends StatefulWidget {
   const PutApp({super.key});
@@ -46,6 +54,7 @@ class PutApp extends StatefulWidget {
 class _PutAppState extends State<PutApp> {
   late final GoRouter _router;
   final _apiClient = createApiClient();
+  String? _pendingCity;
   final _tripDraft = TripDraft();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   String? _refreshToken;
@@ -90,7 +99,15 @@ class _PutAppState extends State<PutApp> {
           path: '/profile-registration',
           builder: (context, state) => ProfileRegistrationPage(
             onSave: _saveProfile,
-            onCompleted: () => context.go('/city-selection'),
+            onCompleted: () async {
+              final city = _pendingCity;
+              if (city == null) {
+                context.go('/city-selection');
+                return;
+              }
+              await _saveCity(city);
+              if (context.mounted) context.go('/passenger-trips');
+            },
           ),
         ),
         GoRoute(
@@ -120,7 +137,70 @@ class _PutAppState extends State<PutApp> {
         ),
         GoRoute(
           path: '/city-selection',
-          builder: (context, state) => const CitySelectionPage(),
+          builder: (context, state) => CitySelectionPage(
+            onCitySelected: (city) async {
+              _pendingCity = city;
+              if (!_apiClient.options.headers.containsKey('Authorization')) {
+                context.go('/sign-in');
+                return;
+              }
+              await _saveCity(city);
+              if (context.mounted) context.go('/passenger-trips');
+            },
+          ),
+        ),
+        GoRoute(
+          path: '/passenger-trips',
+          builder: (context, state) => PassengerTripsPage(
+            loadTrips: _loadPassengerTrips,
+            onTripPressed: (trip) =>
+                context.push('/passenger-trips/${trip.id}'),
+            onCreatePressed: () => _startTripCreation(context),
+          ),
+          routes: [
+            GoRoute(
+              path: ':tripId',
+              builder: (context, state) {
+                final tripId = state.pathParameters['tripId'] ?? '';
+                final booking = state.extra is PassengerBooking
+                    ? state.extra! as PassengerBooking
+                    : null;
+                return PassengerTripDetailPage(
+                  loadDetails: () => _loadPassengerTripDetails(tripId),
+                  booking: booking,
+                  onBack: () => context.pop(),
+                  onBookSeat: (draft) => _createSeatBooking(context, draft),
+                  onSendParcel: () =>
+                      _showComingSoon(context, 'Оплата отправки'),
+                  onCancelBooking: booking == null
+                      ? null
+                      : () => _requestBookingCancel(context, booking),
+                  onMessageDriver: () =>
+                      _showComingSoon(context, 'Чат с водителем'),
+                );
+              },
+            ),
+          ],
+        ),
+        GoRoute(
+          path: '/booking-success',
+          builder: (context, state) {
+            final booking = state.extra! as PassengerBooking;
+            return PassengerBookingSuccessPage(
+              onMyTrips: () => context.go(
+                '/passenger-trips/${booking.tripId}',
+                extra: booking,
+              ),
+              onMessageDriver: () =>
+                  _showComingSoon(context, 'Чат с водителем'),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/account-blocked',
+          builder: (context, state) => PassengerAccountBlockedPage(
+            onAcknowledged: () => context.go('/passenger-trips'),
+          ),
         ),
         GoRoute(
           path: '/driver/profile',
@@ -533,6 +613,169 @@ class _PutAppState extends State<PutApp> {
         'file': MultipartFile.fromBytes(photo.bytes, filename: photo.fileName),
       }),
     );
+  }
+
+  Future<void> _saveCity(String city) async {
+    final response = await _apiClient.get<List<dynamic>>(
+      '/cities',
+      queryParameters: <String, String>{'query': city},
+    );
+    final cities = response.data ?? const [];
+    final exact = cities
+        .whereType<Map>()
+        .cast<Map<dynamic, dynamic>>()
+        .firstWhere(
+          (item) => item['name'] == city,
+          orElse: () => <dynamic, dynamic>{},
+        );
+    final id = exact['id'];
+    if (id is! int) throw StateError('Город не найден');
+    await _apiClient.patch<void>('/me', data: <String, int>{'city_id': id});
+  }
+
+  Future<List<PassengerTrip>> _loadPassengerTrips(
+    String type,
+    PassengerTripFilter filter,
+  ) async {
+    final response = await _apiClient.get<Map<String, dynamic>>(
+      '/search/trips',
+      queryParameters: filter.toQueryParameters(type),
+    );
+    return (response.data?['items'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => PassengerTrip.fromJson(item.cast<String, dynamic>()))
+        .toList(growable: false);
+  }
+
+  Future<PassengerTripDetails> _loadPassengerTripDetails(String tripId) async {
+    final response = await _apiClient.get<Map<String, dynamic>>(
+      '/trips/$tripId',
+    );
+    final data = response.data;
+    if (data == null) throw StateError('Поездка не найдена');
+    return PassengerTripDetails.fromJson(data);
+  }
+
+  Future<void> _startTripCreation(BuildContext context) async {
+    final address = await showPassengerAddressSearchSheet(context);
+    if (!context.mounted || address == null) return;
+    _showComingSoon(context, 'Маршрут от «${address.title}»');
+  }
+
+  Future<void> _createSeatBooking(
+    BuildContext context,
+    PassengerSeatBookingDraft draft,
+  ) async {
+    final response = await _apiClient.post<Map<String, dynamic>>(
+      '/bookings',
+      data: draft.toJson(),
+    );
+    final data = response.data;
+    if (data == null) throw StateError('Сервер не вернул бронирование');
+    final booking = PassengerBooking.fromJson(data);
+    if (!context.mounted) return;
+    await _handleBookingStatus(context, booking);
+  }
+
+  Future<void> _handleBookingStatus(
+    BuildContext context,
+    PassengerBooking booking,
+  ) async {
+    switch (booking.status) {
+      case 'awaiting_payment':
+        await showBookingAcceptedDialog(
+          context,
+          onPay: () => _payBooking(context, booking),
+          onCancel: () => _requestBookingCancel(context, booking),
+        );
+      case 'rejected':
+        await showBookingRejectedDialog(context);
+      case 'paid':
+      case 'completed':
+        if (context.mounted) {
+          context.push('/booking-success', extra: booking);
+        }
+      default:
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            const SnackBar(content: Text('Заявка отправлена водителю')),
+          );
+    }
+  }
+
+  Future<void> _payBooking(
+    BuildContext context,
+    PassengerBooking booking,
+  ) async {
+    try {
+      final response = await _apiClient.post<Map<String, dynamic>>(
+        '/bookings/${booking.id}/pay',
+      );
+      final data = response.data;
+      if (data == null) throw StateError('Сервер не подтвердил оплату');
+      final paid = PassengerBooking.fromJson(data);
+      if (context.mounted) context.push('/booking-success', extra: paid);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось выполнить оплату')),
+      );
+    }
+  }
+
+  Future<void> _requestBookingCancel(
+    BuildContext context,
+    PassengerBooking booking,
+  ) async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>(
+        '/bookings/${booking.id}/cancel-preview',
+      );
+      final data = response.data;
+      if (data == null) throw StateError('Сервер не вернул условия отмены');
+      final preview = PassengerCancellationInfo.fromJson(data);
+      if (!context.mounted) return;
+      await showBookingCancellationDialog(
+        context,
+        preview: preview,
+        onConfirm: () => _cancelBooking(context, booking),
+      );
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Не удалось проверить условия отмены')),
+      );
+    }
+  }
+
+  Future<void> _cancelBooking(
+    BuildContext context,
+    PassengerBooking booking,
+  ) async {
+    final response = await _apiClient.post<Map<String, dynamic>>(
+      '/bookings/${booking.id}/cancel',
+    );
+    final data = response.data;
+    if (data == null) throw StateError('Сервер не подтвердил отмену');
+    final result = PassengerCancellationResult.fromJson(data);
+    if (!context.mounted) return;
+    if (result.sanction.blocksAccount) {
+      context.go('/account-blocked');
+      return;
+    }
+    context.go('/passenger-trips');
+    final message = result.booking.isRefunded
+        ? 'Бронирование отменено. Комиссия возвращена'
+        : 'Бронирование отменено';
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  void _showComingSoon(BuildContext context, String feature) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text('$feature — следующий экран')));
   }
 
   @override

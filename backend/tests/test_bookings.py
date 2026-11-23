@@ -68,7 +68,12 @@ async def test_manual_flow_request_confirm_pay(client: AsyncClient, world: dict)
     booking = await book(client, passenger, request(world, extras=["luggage"]))
     assert booking["status"] == "pending"
     assert booking["price"]["passenger_price"] == 1155  # (1000 + 50) * 1.1
-    assert booking["payment"] == {"pay_online": 105, "pay_to_driver": 1050, "is_paid": False}
+    assert booking["payment"] == {
+        "pay_online": 105,
+        "pay_to_driver": 1050,
+        "is_paid": False,
+        "is_refunded": False,
+    }
     assert booking["can_pay"] is False
     assert "booking_requested" in await notification_types(client, driver)
 

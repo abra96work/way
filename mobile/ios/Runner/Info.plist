@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Камера нужна, чтобы добавить фотографию профиля.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Геолокация нужна, чтобы находить поездки поблизости.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Доступ к фотографиям нужен, чтобы выбрать изображение профиля.</string>
 	<key>UIApplicationSceneManifest</key>
