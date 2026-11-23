@@ -351,3 +351,24 @@ async def test_booking_another_day_trip(client: AsyncClient, world: dict) -> Non
     assert booking["trip"]["id"] == later["id"]
     assert booking["board"]["city"]["name"] == "Екатеринбург"
     assert booking["alight"]["city"]["name"] == "Асбест"
+
+
+async def test_my_trips_show_number_and_requests(client: AsyncClient, world: dict) -> None:
+    driver = world["driver"]
+    await book(client, world["passenger"], request(world))
+
+    mine = await client.get("/api/v1/trips/mine?status=active", headers=driver["headers"])
+
+    assert mine.status_code == 200, mine.text
+    [trip] = mine.json()
+    assert trip["number"] >= 1001
+    assert trip["requests"] == {"count": 1, "avatars": []}
+    # The public trip card never lists passengers.
+    public = await client.get(f"/api/v1/trips/{trip['id']}", headers=world["passenger"]["headers"])
+    assert public.json()["requests"] is None
+
+
+async def test_trip_numbers_increase(client: AsyncClient, world: dict) -> None:
+    second = await publish(client, world["driver"], departure_at=slot(days=2, hour=10))
+
+    assert second["number"] == world["trip"]["number"] + 1

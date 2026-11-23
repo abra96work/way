@@ -72,6 +72,7 @@ flutter:
     - assets/icons/profile/
     - assets/icons/passenger/
     - assets/images/passenger/
+    - assets/images/driver/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

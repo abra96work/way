@@ -22,6 +22,7 @@ def to_read(car: Car) -> CarRead:
         seats=car.seats,
         plate=car.plate,
         photo_url=media_url(car.photo_path),
+        has_sts=car.sts_photo_path is not None,
         created_at=as_utc(car.created_at),
     )
 
@@ -124,6 +125,17 @@ async def delete_car(db: AsyncSession, owner: User, car_id: UUID) -> None:
         )
     car.deleted_at = utcnow()
     await db.commit()
+
+
+async def set_sts_photo(
+    db: AsyncSession, owner: User, car_id: UUID, upload: UploadFile
+) -> Car:
+    car = await get_own_car(db, owner, car_id)
+    new_path = await save_image(upload, "sts")
+    old_path, car.sts_photo_path = car.sts_photo_path, new_path
+    await db.commit()
+    delete_media(old_path)
+    return car
 
 
 async def set_photo(db: AsyncSession, owner: User, car_id: UUID, upload: UploadFile) -> Car:

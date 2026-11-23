@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from app.schemas.search import SegmentQuote
 from app.schemas.trip import (
     PARCEL_LIMITS,
     ParcelSizeRead,
+    PublishLimits,
     ReverseTripCreate,
     SeatsUpdate,
     TripCreate,
@@ -60,7 +62,22 @@ async def my_trips(
 ) -> list[TripRead]:
     """«Мои поездки» водителя. `status`: active | completed | draft | cancelled."""
     trips = await trip_service.list_driver_trips(db, user, status_filter)
-    return [await trip_service.to_read(db, trip) for trip in trips]
+    result = []
+    for trip in trips:
+        read = await trip_service.to_read(db, trip)
+        read.requests = await trip_service.requests_summary(db, trip)
+        result.append(read)
+    return result
+
+
+@router.get("/limits", response_model=PublishLimits, responses=_errors)
+async def publish_limits(
+    user: CurrentUser,
+    db: DbSession,
+    day: Annotated[date | None, Query(alias="date")] = None,
+) -> PublishLimits:
+    """Лимиты публикации на день отправления (`date`, по умолчанию сегодня) и его неделю."""
+    return await trip_service.publish_limits(db, user, day or trip_service.local_today())
 
 
 @router.get("/{trip_id}", response_model=TripRead, responses=_errors)
