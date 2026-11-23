@@ -31,8 +31,10 @@ class Settings(BaseSettings):
     # Business rules.
     local_timezone: str = "Asia/Yekaterinburg"  # "a day" for publishing limits
     commission_percent: Decimal = Decimal("10")
-    trip_publish_days_ahead: int = 3
+    trip_publish_days_ahead: int = 3  # the requirements sticker in Figma: "не дальше 3 дней"
     trip_max_stops: int = 10
+    # Published trips per calendar week (Mon–Sun, local), as "На неделе 3 / 10" in Figma.
+    trip_week_limit: int = 10
     # Arrival times are not collected, so a trip counts as finished this long after departure.
     trip_complete_after_hours: int = 6
     # Drivers need an admin-approved face photo. Off until the admin panel exists (stage 8).

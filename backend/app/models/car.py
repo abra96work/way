@@ -47,6 +47,9 @@ class Car(TimestampMixin, Base):
     seats: Mapped[int] = mapped_column(SmallInteger)
     plate: Mapped[str | None] = mapped_column(String(12))
     photo_path: Mapped[str | None] = mapped_column(String(255))
+    # Photo of the registration certificate (СТС). Stored for the driver's
+    # own records only — never sent to other users; nobody verifies it.
+    sts_photo_path: Mapped[str | None] = mapped_column(String(255))
     # Soft delete: trips keep pointing at the car they were made with.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
