@@ -2,8 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 class PassengerAccountBlockedPage extends StatelessWidget {
-  const PassengerAccountBlockedPage({super.key, this.onAcknowledged});
+  const PassengerAccountBlockedPage({
+    super.key,
+    this.reason,
+    this.blockedUntil,
+    this.onAcknowledged,
+  });
 
+  final String? reason;
+  final DateTime? blockedUntil;
   final VoidCallback? onAcknowledged;
 
   static const _primary = Color(0xFF1EB74D);
@@ -41,10 +48,14 @@ class PassengerAccountBlockedPage extends StatelessWidget {
                 style: TextStyle(fontSize: 23, fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 10),
-              const Text(
-                'Вы отменили две поездки за последние 30 дней.\nБронирование новых поездок временно\nнедоступно',
+              Text(
+                _description(),
                 textAlign: TextAlign.center,
-                style: TextStyle(color: _secondary, fontSize: 14, height: 1.35),
+                style: const TextStyle(
+                  color: _secondary,
+                  fontSize: 14,
+                  height: 1.35,
+                ),
               ),
               const SizedBox(height: 14),
               Container(
@@ -89,4 +100,21 @@ class PassengerAccountBlockedPage extends StatelessWidget {
       ),
     ),
   );
+
+  String _description() {
+    final message = reason?.trim();
+    final until = blockedUntil?.toLocal();
+    final date = until == null
+        ? null
+        : '${until.day.toString().padLeft(2, '0')}.'
+              '${until.month.toString().padLeft(2, '0')}.'
+              '${until.year} ${until.hour.toString().padLeft(2, '0')}:'
+              '${until.minute.toString().padLeft(2, '0')}';
+    if (message != null && message.isNotEmpty && date != null) {
+      return '$message\nБлокировка действует до $date';
+    }
+    if (message != null && message.isNotEmpty) return message;
+    if (date != null) return 'Бронирование недоступно до $date';
+    return 'Бронирование новых поездок временно недоступно';
+  }
 }

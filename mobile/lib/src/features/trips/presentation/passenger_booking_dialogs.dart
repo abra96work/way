@@ -52,11 +52,16 @@ Future<void> showBookingCancelDialog(
 Future<void> showBookingCancellationDialog(
   BuildContext context, {
   required PassengerCancellationInfo preview,
+  PassengerBooking? booking,
   required Future<void> Function() onConfirm,
 }) => showDialog<void>(
   context: context,
   barrierColor: Colors.black.withValues(alpha: 0.42),
-  builder: (_) => _CancellationDialog(preview: preview, onConfirm: onConfirm),
+  builder: (_) => _CancellationDialog(
+    preview: preview,
+    booking: booking,
+    onConfirm: onConfirm,
+  ),
 );
 
 Future<void> showBookingRejectedDialog(BuildContext context) =>
@@ -182,23 +187,38 @@ class _LocationIllustration extends StatelessWidget {
   );
 }
 
-class _CancellationDialog extends StatelessWidget {
-  const _CancellationDialog({required this.preview, required this.onConfirm});
+class _CancellationDialog extends StatefulWidget {
+  const _CancellationDialog({
+    required this.preview,
+    required this.onConfirm,
+    this.booking,
+  });
 
   final PassengerCancellationInfo preview;
+  final PassengerBooking? booking;
   final Future<void> Function() onConfirm;
 
   @override
+  State<_CancellationDialog> createState() => _CancellationDialogState();
+}
+
+class _CancellationDialogState extends State<_CancellationDialog> {
+  bool _showBlockWarning = false;
+
+  @override
   Widget build(BuildContext context) {
-    final lastChance = preview.blocksAccount;
+    final preview = widget.preview;
+    final booking = widget.booking;
+    final lastChance = preview.blocksAccount && _showBlockWarning;
     final title = lastChance
         ? 'Это может повлиять на ваш\nаккаунт'
         : 'Отменить бронирование?';
     final message = !preview.isViolation
         ? 'Вы уверены, что хотите отменить бронирование?'
         : lastChance
-        ? 'Вы уже отменили одну поездку за последние 30 дней. Бронирование новых поездок будет недоступно в течении 30 дней.'
+        ? 'Вы уже отменили одну поездку за последние 30 дней. Бронирование новых поездок будет недоступно в течение 30 дней.'
         : 'Две отмены в течение 30 дней приведут к автоматической блокировке аккаунта на 30 дней.';
+    final hasRefund = booking?.isPaid == true && booking!.commission > 0;
     return Dialog(
       key: const ValueKey('booking-cancellation-dialog'),
       insetPadding: const EdgeInsets.symmetric(horizontal: 20),
@@ -224,7 +244,7 @@ class _CancellationDialog extends StatelessWidget {
                 height: 1.35,
               ),
             ),
-            if (preview.isViolation) ...[
+            if (preview.isViolation || hasRefund) ...[
               const SizedBox(height: 18),
               Container(
                 key: const ValueKey('booking-cancellation-warning'),
@@ -257,21 +277,25 @@ class _CancellationDialog extends StatelessWidget {
                           ),
                         ],
                       )
-                    : Row(
+                    : Column(
                         children: [
-                          const Expanded(
-                            child: Text(
-                              'Отмен за 30 дней',
-                              style: TextStyle(fontSize: 13),
+                          if (hasRefund) ...[
+                            _CancellationInfoRow(
+                              label: 'Возврат на карту',
+                              value: _rubles(booking.commission),
                             ),
-                          ),
-                          Text(
-                            '${preview.violationsLastPeriod + 1} / 2',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
+                            const Divider(height: 18),
+                            const _CancellationInfoRow(
+                              label: 'Срок зачисления',
+                              value: 'до 3 дней',
                             ),
-                          ),
+                            if (preview.isViolation) const Divider(height: 18),
+                          ],
+                          if (preview.isViolation)
+                            _CancellationInfoRow(
+                              label: 'Отмены за 30 дней',
+                              value: '${preview.violationsLastPeriod} / 2',
+                            ),
                         ],
                       ),
               ),
@@ -287,14 +311,18 @@ class _CancellationDialog extends StatelessWidget {
                   borderRadius: BorderRadius.circular(11),
                 ),
               ),
-              child: Text(lastChance ? 'Не отменять' : 'Не отменять'),
+              child: const Text('Не отменять'),
             ),
             const SizedBox(height: 8),
             FilledButton(
               key: const ValueKey('booking-cancellation-confirm'),
               onPressed: () async {
+                if (preview.blocksAccount && !_showBlockWarning) {
+                  setState(() => _showBlockWarning = true);
+                  return;
+                }
                 Navigator.of(context).pop();
-                await onConfirm();
+                await widget.onConfirm();
               },
               style: FilledButton.styleFrom(
                 minimumSize: const Size.fromHeight(46),
@@ -303,11 +331,45 @@ class _CancellationDialog extends StatelessWidget {
                   borderRadius: BorderRadius.circular(11),
                 ),
               ),
-              child: Text(lastChance ? 'Всё равно отменить' : 'Да, отменить'),
+              child: Text(
+                lastChance
+                    ? 'Всё равно отменить'
+                    : hasRefund && !preview.blocksAccount
+                    ? 'Да, отменить и вернуть деньги'
+                    : 'Да, отменить',
+              ),
             ),
           ],
         ),
       ),
     );
   }
+}
+
+class _CancellationInfoRow extends StatelessWidget {
+  const _CancellationInfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(child: Text(label, style: const TextStyle(fontSize: 13))),
+      Text(
+        value,
+        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+      ),
+    ],
+  );
+}
+
+String _rubles(int value) {
+  final digits = value.toString();
+  final chunks = <String>[];
+  for (var end = digits.length; end > 0; end -= 3) {
+    final start = end > 3 ? end - 3 : 0;
+    chunks.add(digits.substring(start, end));
+  }
+  return '${chunks.reversed.join('\u00A0')}\u00A0₽';
 }

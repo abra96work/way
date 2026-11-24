@@ -45,6 +45,7 @@ class _SmsCodePageState extends State<SmsCodePage> {
   bool _isSubmitting = false;
   bool _isResending = false;
   bool _hasInvalidCode = false;
+  String _verificationError = 'Неверный код подтверждения';
 
   bool get _isComplete => _codeController.text.length == 6;
   bool get _canSubmit => _isComplete && !_isSubmitting && !_hasInvalidCode;
@@ -129,7 +130,7 @@ class _SmsCodePageState extends State<SmsCodePage> {
                           _buildResendRow(),
                           if (_hasInvalidCode) ...[
                             const SizedBox(height: 16),
-                            const _InvalidCodeMessage(),
+                            _InvalidCodeMessage(message: _verificationError),
                           ],
                         ],
                       ),
@@ -152,7 +153,10 @@ class _SmsCodePageState extends State<SmsCodePage> {
                             LengthLimitingTextInputFormatter(6),
                           ],
                           onChanged: (_) {
-                            setState(() => _hasInvalidCode = false);
+                            setState(() {
+                              _hasInvalidCode = false;
+                              _verificationError = 'Неверный код подтверждения';
+                            });
                           },
                           onSubmitted: (_) {
                             if (_canSubmit) _verify();
@@ -316,9 +320,12 @@ class _SmsCodePageState extends State<SmsCodePage> {
       await widget.onVerify(widget.phone, _codeController.text);
       if (!mounted) return;
       widget.onVerified?.call();
-    } on DioException {
+    } on DioException catch (error) {
       if (!mounted) return;
-      setState(() => _hasInvalidCode = true);
+      setState(() {
+        _hasInvalidCode = true;
+        _verificationError = _apiMessage(error, 'Неверный код подтверждения');
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _hasInvalidCode = true);
@@ -337,24 +344,29 @@ class _SmsCodePageState extends State<SmsCodePage> {
         _secondsLeft = 59;
       });
       _startTimer();
-    } on DioException {
-      _showResendError();
+    } on DioException catch (error) {
+      _showResendError(
+        _apiMessage(error, 'Не удалось отправить код. Попробуйте ещё раз'),
+      );
     } catch (_) {
-      _showResendError();
+      _showResendError('Не удалось отправить код. Попробуйте ещё раз');
     } finally {
       if (mounted) setState(() => _isResending = false);
     }
   }
 
-  void _showResendError() {
+  void _showResendError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(
-        const SnackBar(
-          content: Text('Не удалось отправить код. Попробуйте ещё раз'),
-        ),
-      );
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  static String _apiMessage(DioException error, String fallback) {
+    final data = error.response?.data;
+    return data is Map && data['message'] is String
+        ? data['message'] as String
+        : fallback;
   }
 
   void _refresh() {
@@ -363,10 +375,16 @@ class _SmsCodePageState extends State<SmsCodePage> {
 
   static String _formatPhone(String phone) {
     final digits = phone.replaceAll(RegExp(r'\D'), '');
-    if (digits.length != 12 || !digits.startsWith('375')) return phone;
-    return '+${digits.substring(0, 3)} ${digits.substring(3, 5)} '
-        '${digits.substring(5, 8)} ${digits.substring(8, 10)} '
-        '${digits.substring(10, 12)}';
+    if (digits.length == 11 && digits.startsWith('7')) {
+      return '+7 ${digits.substring(1, 4)} ${digits.substring(4, 7)} '
+          '${digits.substring(7, 9)} ${digits.substring(9, 11)}';
+    }
+    if (digits.length == 12 && digits.startsWith('375')) {
+      return '+${digits.substring(0, 3)} ${digits.substring(3, 5)} '
+          '${digits.substring(5, 8)} ${digits.substring(8, 10)} '
+          '${digits.substring(10, 12)}';
+    }
+    return phone;
   }
 }
 
@@ -485,7 +503,9 @@ class _CodeFields extends StatelessWidget {
 }
 
 class _InvalidCodeMessage extends StatelessWidget {
-  const _InvalidCodeMessage();
+  const _InvalidCodeMessage({required this.message});
+
+  final String message;
 
   @override
   Widget build(BuildContext context) {
@@ -499,7 +519,7 @@ class _InvalidCodeMessage extends StatelessWidget {
             borderRadius: BorderRadius.circular(12),
           ),
           alignment: Alignment.center,
-          child: const FittedBox(
+          child: FittedBox(
             fit: BoxFit.scaleDown,
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -507,8 +527,8 @@ class _InvalidCodeMessage extends StatelessWidget {
                 Icon(Icons.error, color: Colors.white, size: 16),
                 SizedBox(width: 8),
                 Text(
-                  'Неверный код подтверждения',
-                  style: TextStyle(
+                  message,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 13,
                     fontWeight: FontWeight.w600,

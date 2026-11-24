@@ -36,7 +36,7 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
 
   bool get _isPhoneValid {
     final digits = _phoneController.text.replaceAll(RegExp(r'\D'), '');
-    return digits.length == 12 && digits.startsWith('375');
+    return digits.length == 11 && digits.startsWith('7');
   }
 
   String get _phoneE164 =>
@@ -116,7 +116,7 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
                               autofocus: false,
                               keyboardType: TextInputType.phone,
                               textInputAction: TextInputAction.done,
-                              inputFormatters: const [_BelarusPhoneFormatter()],
+                              inputFormatters: const [_RussianPhoneFormatter()],
                               onChanged: (_) => setState(() {}),
                               style: const TextStyle(
                                 color: _text,
@@ -312,8 +312,8 @@ class _ConsentText extends StatelessWidget {
   }
 }
 
-class _BelarusPhoneFormatter extends TextInputFormatter {
-  const _BelarusPhoneFormatter();
+class _RussianPhoneFormatter extends TextInputFormatter {
+  const _RussianPhoneFormatter();
 
   @override
   TextEditingValue formatEditUpdate(
@@ -321,15 +321,18 @@ class _BelarusPhoneFormatter extends TextInputFormatter {
     TextEditingValue newValue,
   ) {
     var digits = newValue.text.replaceAll(RegExp(r'\D'), '');
-    if (digits.startsWith('375')) digits = digits.substring(3);
-    if (digits.length > 9) digits = digits.substring(0, 9);
+    if (digits.length > 1 &&
+        (digits.startsWith('7') || digits.startsWith('8'))) {
+      digits = digits.substring(1);
+    }
+    if (digits.length > 10) digits = digits.substring(0, 10);
     if (digits.isEmpty) return const TextEditingValue();
 
-    final buffer = StringBuffer('+375 ');
-    _writeGroup(buffer, digits, 0, 2);
-    _writeGroup(buffer, digits, 2, 3);
-    _writeGroup(buffer, digits, 5, 2);
-    _writeGroup(buffer, digits, 7, 2);
+    final buffer = StringBuffer('+7 ');
+    _writeGroup(buffer, digits, 0, 3);
+    _writeGroup(buffer, digits, 3, 3);
+    _writeGroup(buffer, digits, 6, 2);
+    _writeGroup(buffer, digits, 8, 2);
     final formatted = buffer.toString();
     return TextEditingValue(
       text: formatted,

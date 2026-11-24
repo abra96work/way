@@ -10,6 +10,9 @@ import 'features/auth/presentation/legal_document_page.dart';
 import 'features/auth/presentation/phone_login_page.dart';
 import 'features/auth/presentation/profile_registration_page.dart';
 import 'features/auth/presentation/sms_code_page.dart';
+import 'features/chat/domain/chat_models.dart';
+import 'features/chat/presentation/chat_list_page.dart';
+import 'features/chat/presentation/chat_page.dart';
 import 'features/driver/domain/driver_api_exception.dart';
 import 'features/driver/domain/driver_car.dart';
 import 'features/driver/domain/driver_profile.dart';
@@ -35,10 +38,21 @@ import 'features/onboarding/presentation/onboarding_page.dart';
 import 'features/onboarding/presentation/registration_intro_page.dart';
 import 'features/onboarding/presentation/role_selection_page.dart';
 import 'features/onboarding/presentation/welcome_page.dart';
+import 'features/technical/presentation/technical_pages.dart';
 import 'features/trips/domain/passenger_trip.dart';
 import 'features/trips/domain/passenger_booking.dart';
+import 'features/trips/domain/passenger_api_exception.dart';
+import 'features/trips/domain/passenger_profile.dart';
 import 'features/trips/presentation/passenger_booking_dialogs.dart';
+import 'features/trips/presentation/passenger_booking_cancelled_page.dart';
+import 'features/trips/presentation/passenger_booking_detail_page.dart';
 import 'features/trips/presentation/passenger_booking_success_page.dart';
+import 'features/trips/presentation/passenger_my_bookings_page.dart';
+import 'features/trips/presentation/passenger_parcel_booking_sheet.dart';
+import 'features/trips/presentation/passenger_personal_data_page.dart';
+import 'features/trips/presentation/passenger_info_list_page.dart';
+import 'features/trips/presentation/passenger_profile_page.dart';
+import 'features/trips/presentation/passenger_role_page.dart';
 import 'features/trips/presentation/passenger_account_blocked_page.dart';
 import 'features/trips/presentation/passenger_address_search_sheet.dart';
 import 'features/trips/presentation/passenger_trip_detail_page.dart';
@@ -58,6 +72,9 @@ class _PutAppState extends State<PutApp> {
   final _tripDraft = TripDraft();
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   String? _refreshToken;
+  String _technicalReturnPath = '/passenger-trips';
+  String? _blockedReason;
+  DateTime? _blockedUntil;
 
   @override
   void initState() {
@@ -156,6 +173,9 @@ class _PutAppState extends State<PutApp> {
             onTripPressed: (trip) =>
                 context.push('/passenger-trips/${trip.id}'),
             onCreatePressed: () => _startTripCreation(context),
+            onOrdersPressed: () => context.go('/passenger-bookings'),
+            onChatsPressed: () => context.push('/chats'),
+            onProfilePressed: () => context.go('/passenger-profile'),
           ),
           routes: [
             GoRoute(
@@ -170,13 +190,43 @@ class _PutAppState extends State<PutApp> {
                   booking: booking,
                   onBack: () => context.pop(),
                   onBookSeat: (draft) => _createSeatBooking(context, draft),
-                  onSendParcel: () =>
-                      _showComingSoon(context, 'Оплата отправки'),
+                  onSendParcel: (draft) => _createParcelBooking(context, draft),
                   onCancelBooking: booking == null
                       ? null
                       : () => _requestBookingCancel(context, booking),
+                  onMessageDriver: booking == null
+                      ? null
+                      : () => _openChatForBooking(context, booking.id),
+                );
+              },
+            ),
+          ],
+        ),
+        GoRoute(
+          path: '/passenger-bookings',
+          builder: (context, state) => PassengerMyBookingsPage(
+            loadBookings: _loadPassengerBookings,
+            onBookingPressed: (booking) async {
+              await context.push('/passenger-bookings/${booking.id}');
+            },
+            onTrips: () => context.go('/passenger-trips'),
+            onCreate: () => _startTripCreation(context),
+            onChats: () => context.push('/chats'),
+            onProfile: () => context.go('/passenger-profile'),
+          ),
+          routes: [
+            GoRoute(
+              path: ':bookingId',
+              builder: (context, state) {
+                final bookingId = state.pathParameters['bookingId'] ?? '';
+                return PassengerBookingDetailPage(
+                  loadBooking: () => _loadPassengerBooking(bookingId),
+                  onBack: () => context.pop(),
+                  onCancel: (booking) =>
+                      _requestBookingCancel(context, booking),
+                  onPay: (booking) => _payBooking(context, booking),
                   onMessageDriver: () =>
-                      _showComingSoon(context, 'Чат с водителем'),
+                      _openChatForBooking(context, bookingId),
                 );
               },
             ),
@@ -187,19 +237,126 @@ class _PutAppState extends State<PutApp> {
           builder: (context, state) {
             final booking = state.extra! as PassengerBooking;
             return PassengerBookingSuccessPage(
-              onMyTrips: () => context.go(
-                '/passenger-trips/${booking.tripId}',
-                extra: booking,
-              ),
-              onMessageDriver: () =>
-                  _showComingSoon(context, 'Чат с водителем'),
+              onMyTrips: () => context.go('/passenger-bookings/${booking.id}'),
+              onMessageDriver: () => _openChatForBooking(context, booking.id),
             );
           },
         ),
         GoRoute(
+          path: '/passenger-profile',
+          builder: (context, state) => PassengerProfilePage(
+            loadProfile: _loadPassengerProfile,
+            loadUnreadNotifications: _loadUnreadNotifications,
+            onOpen: (section) => _openPassengerProfileSection(context, section),
+            onLogout: _logout,
+            onTrips: () => context.go('/passenger-trips'),
+            onOrders: () => context.go('/passenger-bookings'),
+            onCreate: () => _startTripCreation(context),
+            onChats: () => context.push('/chats'),
+          ),
+          routes: [
+            GoRoute(
+              path: 'role',
+              builder: (context, state) => PassengerRolePage(
+                onBack: () => context.pop(),
+                onDriver: () => context.go('/driver/profile'),
+              ),
+            ),
+            GoRoute(
+              path: 'personal',
+              builder: (context, state) => PassengerPersonalDataPage(
+                loadProfile: _loadPassengerProfile,
+                pickPhoto: _pickPhoto,
+                onSave: _savePassengerProfile,
+                onBack: () => context.pop(),
+              ),
+            ),
+            GoRoute(
+              path: 'complaints',
+              builder: (context, state) => PassengerInfoListPage(
+                title: 'Жалобы',
+                emptyMessage: 'У вас нет жалоб',
+                loadItems: _loadPassengerComplaints,
+                onBack: () => context.pop(),
+              ),
+            ),
+            GoRoute(
+              path: 'notifications',
+              builder: (context, state) => PassengerInfoListPage(
+                title: 'Уведомления',
+                emptyMessage: 'У вас нет уведомлений',
+                loadItems: _loadPassengerNotifications,
+                onBack: () => context.pop(),
+              ),
+            ),
+          ],
+        ),
+        GoRoute(
+          path: '/booking-cancelled',
+          redirect: (context, state) =>
+              state.extra is PassengerBooking ? null : '/passenger-bookings',
+          builder: (context, state) => PassengerBookingCancelledPage(
+            booking: state.extra! as PassengerBooking,
+            onHome: () => context.go('/passenger-trips'),
+          ),
+        ),
+        GoRoute(
+          path: '/chats',
+          builder: (context, state) => ChatListPage(
+            loadChats: _loadChats,
+            onOpenChat: (chat) => context.push('/chats/${chat.id}'),
+            onBack: () => context.canPop()
+                ? context.pop()
+                : context.go('/passenger-trips'),
+          ),
+          routes: [
+            GoRoute(
+              path: ':chatId',
+              builder: (context, state) {
+                final chatId = state.pathParameters['chatId'] ?? '';
+                return ChatPage(
+                  loadChat: () => _loadChat(chatId),
+                  loadMessages: () => _loadChatMessages(chatId),
+                  sendMessage: (text) => _sendChatMessage(chatId, text),
+                  markRead: () => _markChatRead(chatId),
+                  onBack: () => context.pop(),
+                );
+              },
+            ),
+          ],
+        ),
+        GoRoute(
           path: '/account-blocked',
-          builder: (context, state) => PassengerAccountBlockedPage(
-            onAcknowledged: () => context.go('/passenger-trips'),
+          builder: (context, state) {
+            final sanction = state.extra is PassengerCancellationInfo
+                ? state.extra! as PassengerCancellationInfo
+                : null;
+            return PassengerAccountBlockedPage(
+              reason: sanction?.warning,
+              blockedUntil: sanction?.blockedUntil,
+              onAcknowledged: () => context.go('/passenger-trips'),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/loading',
+          builder: (context, state) => const TechnicalLoadingPage(),
+        ),
+        GoRoute(
+          path: '/no-internet',
+          builder: (context, state) =>
+              TechnicalOfflinePage(onRetry: _retryTechnicalRoute),
+        ),
+        GoRoute(
+          path: '/technical-error',
+          builder: (context, state) =>
+              TechnicalErrorPage(onRetry: _retryTechnicalRoute),
+        ),
+        GoRoute(
+          path: '/account-access-blocked',
+          builder: (context, state) => TechnicalAccountBlockedPage(
+            reason: _blockedReason,
+            blockedUntil: _blockedUntil,
           ),
         ),
         GoRoute(
@@ -207,9 +364,15 @@ class _PutAppState extends State<PutApp> {
           builder: (context, state) => DriverProfilePage(
             loadProfile: _loadProfile,
             loadUnreadNotifications: _loadUnreadNotifications,
-            onOpen: (section) => section == ProfileSection.vehicles
-                ? context.push('/driver/cars')
-                : _comingSoon(),
+            onOpen: (section) {
+              if (section == ProfileSection.passengerMode) {
+                context.go('/passenger-profile');
+              } else if (section == ProfileSection.vehicles) {
+                context.push('/driver/cars');
+              } else {
+                _comingSoon();
+              }
+            },
             onLogout: _logout,
             onTab: (tab) => _openDriverTab(context, tab),
           ),
@@ -331,6 +494,19 @@ class _PutAppState extends State<PutApp> {
           },
         ),
       ],
+      errorBuilder: (context, state) =>
+          TechnicalErrorPage(onRetry: () => context.go('/passenger-trips')),
+    );
+    _apiClient.interceptors.add(
+      InterceptorsWrapper(
+        onError: (error, handler) {
+          final technicalRoute = _technicalRouteFor(error);
+          if (technicalRoute != null) {
+            _openTechnicalRoute(technicalRoute);
+          }
+          handler.next(error);
+        },
+      ),
     );
   }
 
@@ -452,12 +628,191 @@ class _PutAppState extends State<PutApp> {
     );
   }
 
+  Future<PassengerProfile> _loadPassengerProfile() async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>('/me');
+      final data = response.data;
+      if (data == null) throw StateError('Профиль не найден');
+      return PassengerProfile.fromJson(
+        data,
+        mediaBaseUrl: AppConfig.apiBaseUrl,
+      );
+    } on DioException catch (error) {
+      throw PassengerApiException(
+        _passengerErrorMessage(error, 'Не удалось загрузить профиль'),
+      );
+    }
+  }
+
   Future<int> _loadUnreadNotifications() async {
     final response = await _apiClient.get<Map<String, dynamic>>(
       '/notifications/unread-count',
     );
     return response.data?['unread'] as int? ?? 0;
   }
+
+  Future<List<AppChat>> _loadChats() async {
+    try {
+      final response = await _apiClient.get<List<dynamic>>('/chats');
+      return (response.data ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => AppChat.fromJson(
+              item.cast<String, dynamic>(),
+              mediaBaseUrl: AppConfig.apiBaseUrl,
+            ),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      throw PassengerApiException(
+        _passengerErrorMessage(error, 'Не удалось загрузить чаты'),
+      );
+    }
+  }
+
+  Future<AppChat> _loadChat(String chatId) async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>(
+        '/chats/$chatId',
+      );
+      final data = response.data;
+      if (data == null) throw StateError('Чат не найден');
+      return AppChat.fromJson(data, mediaBaseUrl: AppConfig.apiBaseUrl);
+    } on DioException catch (error) {
+      throw PassengerApiException(
+        _passengerErrorMessage(error, 'Не удалось загрузить чат'),
+      );
+    }
+  }
+
+  Future<List<AppChatMessage>> _loadChatMessages(String chatId) async {
+    try {
+      final response = await _apiClient.get<List<dynamic>>(
+        '/chats/$chatId/messages',
+      );
+      return (response.data ?? const [])
+          .whereType<Map>()
+          .map((item) => AppChatMessage.fromJson(item.cast<String, dynamic>()))
+          .toList(growable: false);
+    } on DioException catch (error) {
+      throw PassengerApiException(
+        _passengerErrorMessage(error, 'Не удалось загрузить сообщения'),
+      );
+    }
+  }
+
+  Future<AppChatMessage> _sendChatMessage(String chatId, String text) async {
+    try {
+      final response = await _apiClient.post<Map<String, dynamic>>(
+        '/chats/$chatId/messages',
+        data: {'text': text},
+      );
+      final data = response.data;
+      if (data == null) throw StateError('Сообщение не отправлено');
+      return AppChatMessage.fromJson(data);
+    } on DioException catch (error) {
+      throw PassengerApiException(
+        _passengerErrorMessage(error, 'Не удалось отправить сообщение'),
+      );
+    }
+  }
+
+  Future<void> _markChatRead(String chatId) async {
+    try {
+      await _apiClient.post<void>('/chats/$chatId/read');
+    } on DioException catch (error) {
+      throw PassengerApiException(
+        _passengerErrorMessage(error, 'Не удалось отметить сообщения'),
+      );
+    }
+  }
+
+  Future<void> _openChatForBooking(
+    BuildContext context,
+    String bookingId,
+  ) async {
+    try {
+      final response = await _apiClient.post<Map<String, dynamic>>(
+        '/chats',
+        data: {'booking_id': bookingId},
+      );
+      final data = response.data;
+      if (data == null) throw StateError('Чат не найден');
+      final chat = AppChat.fromJson(data, mediaBaseUrl: AppConfig.apiBaseUrl);
+      if (context.mounted) context.push('/chats/${chat.id}');
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error is PassengerApiException
+                ? error.message
+                : _passengerErrorMessage(error, 'Не удалось открыть чат'),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<List<PassengerInfoItem>> _loadPassengerComplaints() async {
+    try {
+      final response = await _apiClient.get<List<dynamic>>('/me/complaints');
+      return (response.data ?? const [])
+          .whereType<Map>()
+          .map((raw) {
+            final item = raw.cast<String, dynamic>();
+            final text = item['text'] as String?;
+            return PassengerInfoItem(
+              id: item['id']?.toString() ?? '',
+              title: _complaintReason(item['reason']?.toString() ?? ''),
+              body: text == null || text.trim().isEmpty
+                  ? 'Статус: ${item['status'] ?? 'получена'}'
+                  : text,
+              createdAt: DateTime.tryParse(
+                item['created_at']?.toString() ?? '',
+              ),
+            );
+          })
+          .toList(growable: false);
+    } on DioException catch (error) {
+      throw PassengerApiException(
+        _passengerErrorMessage(error, 'Не удалось загрузить жалобы'),
+      );
+    }
+  }
+
+  Future<List<PassengerInfoItem>> _loadPassengerNotifications() async {
+    try {
+      final response = await _apiClient.get<List<dynamic>>('/notifications');
+      return (response.data ?? const [])
+          .whereType<Map>()
+          .map((raw) {
+            final item = raw.cast<String, dynamic>();
+            return PassengerInfoItem(
+              id: item['id']?.toString() ?? '',
+              title: item['title'] as String? ?? 'Уведомление',
+              body: item['body'] as String? ?? '',
+              createdAt: DateTime.tryParse(
+                item['created_at']?.toString() ?? '',
+              ),
+              isRead: item['is_read'] == true,
+            );
+          })
+          .toList(growable: false);
+    } on DioException catch (error) {
+      throw PassengerApiException(
+        _passengerErrorMessage(error, 'Не удалось загрузить уведомления'),
+      );
+    }
+  }
+
+  String _complaintReason(String value) => switch (value) {
+    'rude_behavior' => 'Грубое поведение',
+    'unsafe_driving' => 'Опасное вождение',
+    'no_show' => 'Участник не явился',
+    'fraud' => 'Мошенничество',
+    _ => 'Жалоба',
+  };
 
   /// Revokes the refresh token (best effort) and forgets the session.
   Future<void> _logout() async {
@@ -487,7 +842,9 @@ class _PutAppState extends State<PutApp> {
         context.go('/driver/profile');
       case DriverTab.orders:
         context.go('/driver/trips');
-      case DriverTab.home || DriverTab.chats:
+      case DriverTab.chats:
+        context.push('/chats');
+      case DriverTab.home:
         _comingSoon();
     }
   }
@@ -498,6 +855,82 @@ class _PutAppState extends State<PutApp> {
       ..showSnackBar(
         const SnackBar(content: Text('Раздел появится в следующей версии')),
       );
+  }
+
+  String? _technicalRouteFor(DioException error) {
+    final data = error.response?.data;
+    if (data is Map && data['code'] == 'user_blocked') {
+      _blockedReason = data['message'] as String?;
+      final details = data['details'];
+      final rawBlockedUntil = details is Map
+          ? details['blocked_until']
+          : data['blocked_until'];
+      _blockedUntil = DateTime.tryParse(rawBlockedUntil?.toString() ?? '');
+      return '/account-access-blocked';
+    }
+    final status = error.response?.statusCode;
+    if (status != null && status >= 500) {
+      return '/technical-error';
+    }
+    if (error.response == null ||
+        error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.receiveTimeout ||
+        error.type == DioExceptionType.sendTimeout) {
+      return '/no-internet';
+    }
+    return null;
+  }
+
+  void _openTechnicalRoute(String route) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final current = _router.routerDelegate.currentConfiguration.uri.path;
+      const technicalPaths = {
+        '/loading',
+        '/no-internet',
+        '/technical-error',
+        '/account-access-blocked',
+      };
+      if (!technicalPaths.contains(current)) {
+        _technicalReturnPath = current.isEmpty ? '/passenger-trips' : current;
+      }
+      if (current != route) _router.go(route);
+    });
+  }
+
+  Future<void> _retryTechnicalRoute() async {
+    final destination = _technicalReturnPath;
+    _router.go('/loading');
+    try {
+      await _apiClient.get<void>('/health');
+      if (mounted) _router.go(destination);
+    } on DioException catch (error) {
+      if (!mounted) return;
+      _router.go(_technicalRouteFor(error) ?? '/technical-error');
+    }
+  }
+
+  void _openPassengerProfileSection(
+    BuildContext context,
+    PassengerProfileSection section,
+  ) {
+    switch (section) {
+      case PassengerProfileSection.role:
+        context.push('/passenger-profile/role');
+      case PassengerProfileSection.personal:
+        context.push('/passenger-profile/personal');
+      case PassengerProfileSection.complaints:
+        context.push('/passenger-profile/complaints');
+      case PassengerProfileSection.notifications:
+        context.push('/passenger-profile/notifications');
+      case PassengerProfileSection.savedRoutes ||
+          PassengerProfileSection.history ||
+          PassengerProfileSection.payment ||
+          PassengerProfileSection.faq ||
+          PassengerProfileSection.about:
+        _showComingSoon(context, 'Раздел');
+    }
   }
 
   /// "Мои заказы": active trips with templates (drafts), or finished ones
@@ -615,6 +1048,34 @@ class _PutAppState extends State<PutApp> {
     );
   }
 
+  Future<void> _savePassengerProfile(
+    String firstName,
+    String? lastName,
+    PickedPhoto? photo,
+  ) async {
+    try {
+      await _apiClient.patch<void>(
+        '/me',
+        data: <String, String?>{'first_name': firstName, 'last_name': lastName},
+      );
+      if (photo != null) {
+        await _apiClient.put<void>(
+          '/me/avatar',
+          data: FormData.fromMap({
+            'file': MultipartFile.fromBytes(
+              photo.bytes,
+              filename: photo.fileName,
+            ),
+          }),
+        );
+      }
+    } on DioException catch (error) {
+      throw PassengerApiException(
+        _passengerErrorMessage(error, 'Не удалось сохранить данные'),
+      );
+    }
+  }
+
   Future<void> _saveCity(String city) async {
     final response = await _apiClient.get<List<dynamic>>(
       '/cities',
@@ -656,6 +1117,37 @@ class _PutAppState extends State<PutApp> {
     return PassengerTripDetails.fromJson(data);
   }
 
+  Future<List<PassengerBooking>> _loadPassengerBookings() async {
+    try {
+      final response = await _apiClient.get<List<dynamic>>('/bookings/mine');
+      return (response.data ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) => PassengerBooking.fromJson(item.cast<String, dynamic>()),
+          )
+          .toList(growable: false);
+    } on DioException catch (error) {
+      throw PassengerApiException(
+        _passengerErrorMessage(error, 'Не удалось загрузить заказы'),
+      );
+    }
+  }
+
+  Future<PassengerBooking> _loadPassengerBooking(String bookingId) async {
+    try {
+      final response = await _apiClient.get<Map<String, dynamic>>(
+        '/bookings/$bookingId',
+      );
+      final data = response.data;
+      if (data == null) throw StateError('Бронирование не найдено');
+      return PassengerBooking.fromJson(data);
+    } on DioException catch (error) {
+      throw PassengerApiException(
+        _passengerErrorMessage(error, 'Не удалось загрузить бронирование'),
+      );
+    }
+  }
+
   Future<void> _startTripCreation(BuildContext context) async {
     final address = await showPassengerAddressSearchSheet(context);
     if (!context.mounted || address == null) return;
@@ -665,6 +1157,21 @@ class _PutAppState extends State<PutApp> {
   Future<void> _createSeatBooking(
     BuildContext context,
     PassengerSeatBookingDraft draft,
+  ) async {
+    final response = await _apiClient.post<Map<String, dynamic>>(
+      '/bookings',
+      data: draft.toJson(),
+    );
+    final data = response.data;
+    if (data == null) throw StateError('Сервер не вернул бронирование');
+    final booking = PassengerBooking.fromJson(data);
+    if (!context.mounted) return;
+    await _handleBookingStatus(context, booking);
+  }
+
+  Future<void> _createParcelBooking(
+    BuildContext context,
+    PassengerParcelBookingDraft draft,
   ) async {
     final response = await _apiClient.post<Map<String, dynamic>>(
       '/bookings',
@@ -716,10 +1223,14 @@ class _PutAppState extends State<PutApp> {
       if (data == null) throw StateError('Сервер не подтвердил оплату');
       final paid = PassengerBooking.fromJson(data);
       if (context.mounted) context.push('/booking-success', extra: paid);
-    } catch (_) {
+    } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось выполнить оплату')),
+        SnackBar(
+          content: Text(
+            _passengerErrorMessage(error, 'Не удалось выполнить оплату'),
+          ),
+        ),
       );
     }
   }
@@ -739,12 +1250,20 @@ class _PutAppState extends State<PutApp> {
       await showBookingCancellationDialog(
         context,
         preview: preview,
+        booking: booking,
         onConfirm: () => _cancelBooking(context, booking),
       );
-    } catch (_) {
+    } catch (error) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Не удалось проверить условия отмены')),
+        SnackBar(
+          content: Text(
+            _passengerErrorMessage(
+              error,
+              'Не удалось проверить условия отмены',
+            ),
+          ),
+        ),
       );
     }
   }
@@ -753,23 +1272,40 @@ class _PutAppState extends State<PutApp> {
     BuildContext context,
     PassengerBooking booking,
   ) async {
-    final response = await _apiClient.post<Map<String, dynamic>>(
-      '/bookings/${booking.id}/cancel',
-    );
-    final data = response.data;
-    if (data == null) throw StateError('Сервер не подтвердил отмену');
-    final result = PassengerCancellationResult.fromJson(data);
-    if (!context.mounted) return;
-    if (result.sanction.blocksAccount) {
-      context.go('/account-blocked');
-      return;
+    try {
+      final response = await _apiClient.post<Map<String, dynamic>>(
+        '/bookings/${booking.id}/cancel',
+      );
+      final data = response.data;
+      if (data == null) throw StateError('Сервер не подтвердил отмену');
+      final result = PassengerCancellationResult.fromJson(data);
+      if (!context.mounted) return;
+      if (result.sanction.blocksAccount) {
+        context.go('/account-blocked', extra: result.sanction);
+        return;
+      }
+      context.go('/booking-cancelled', extra: result.booking);
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _passengerErrorMessage(error, 'Не удалось отменить бронирование'),
+          ),
+        ),
+      );
     }
-    context.go('/passenger-trips');
-    final message = result.booking.isRefunded
-        ? 'Бронирование отменено. Комиссия возвращена'
-        : 'Бронирование отменено';
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _passengerErrorMessage(Object error, String fallback) {
+    if (error is PassengerApiException) return error.message;
+    if (error is DioException) {
+      final data = error.response?.data;
+      if (data is Map && data['message'] is String) {
+        return data['message'] as String;
+      }
+    }
+    return fallback;
   }
 
   void _showComingSoon(BuildContext context, String feature) {

@@ -34,6 +34,23 @@ class PassengerBooking {
     required this.canPay,
     required this.canCancel,
     this.isRefunded = false,
+    this.kind = 'seat',
+    this.number,
+    this.departureAt,
+    this.boardAddress = '',
+    this.alightAddress = '',
+    this.boardPosition = 0,
+    this.alightPosition = 1,
+    this.seats = 1,
+    this.parcelSize,
+    this.extras = const [],
+    this.driverName = 'Водитель',
+    this.driverRating = 5,
+    this.driverCompletedTrips = 0,
+    this.driverAvatarUrl,
+    this.carName = '',
+    this.carPhotoUrl,
+    this.carPlate,
   });
 
   final String id;
@@ -45,6 +62,23 @@ class PassengerBooking {
   final bool canPay;
   final bool canCancel;
   final bool isRefunded;
+  final String kind;
+  final int? number;
+  final DateTime? departureAt;
+  final String boardAddress;
+  final String alightAddress;
+  final int boardPosition;
+  final int alightPosition;
+  final int seats;
+  final String? parcelSize;
+  final List<String> extras;
+  final String driverName;
+  final double driverRating;
+  final int driverCompletedTrips;
+  final String? driverAvatarUrl;
+  final String carName;
+  final String? carPhotoUrl;
+  final String? carPlate;
 
   bool get isPaid => status == 'paid' || status == 'completed';
 
@@ -52,6 +86,10 @@ class PassengerBooking {
     final trip = _map(json['trip']);
     final price = _map(json['price']);
     final payment = _map(json['payment']);
+    final board = _map(json['board']);
+    final alight = _map(json['alight']);
+    final driver = _map(trip['driver']);
+    final car = _map(trip['car']);
     return PassengerBooking(
       id: json['id'] as String? ?? '',
       tripId: trip['id'] as String? ?? '',
@@ -62,6 +100,27 @@ class PassengerBooking {
       canPay: json['can_pay'] == true,
       canCancel: json['can_cancel'] == true,
       isRefunded: payment['is_refunded'] == true,
+      kind: json['kind'] as String? ?? 'seat',
+      number: (json['number'] as num?)?.toInt(),
+      departureAt: DateTime.tryParse(trip['departure_at'] as String? ?? ''),
+      boardAddress: board['address'] as String? ?? '',
+      alightAddress: alight['address'] as String? ?? '',
+      boardPosition: (board['position'] as num?)?.toInt() ?? 0,
+      alightPosition: (alight['position'] as num?)?.toInt() ?? 1,
+      seats: (json['seats'] as num?)?.toInt() ?? 1,
+      parcelSize: json['parcel_size'] as String?,
+      extras: (json['extras'] as List? ?? const [])
+          .whereType<Map>()
+          .map((value) => value['kind'])
+          .whereType<String>()
+          .toList(growable: false),
+      driverName: _personName(driver),
+      driverRating: (driver['rating'] as num?)?.toDouble() ?? 5,
+      driverCompletedTrips: (driver['completed_trips'] as num?)?.toInt() ?? 0,
+      driverAvatarUrl: driver['avatar_url'] as String?,
+      carName: '${car['brand'] ?? ''} ${car['model'] ?? ''}'.trim(),
+      carPhotoUrl: car['photo_url'] as String?,
+      carPlate: car['plate'] as String?,
     );
   }
 }
@@ -110,3 +169,10 @@ class PassengerCancellationResult {
 
 Map<String, dynamic> _map(Object? value) =>
     value is Map ? value.cast<String, dynamic>() : <String, dynamic>{};
+
+String _personName(Map<String, dynamic> value) {
+  final first = value['first_name'] as String? ?? 'Водитель';
+  final last = value['last_name'] as String?;
+  if (last == null || last.trim().isEmpty) return first;
+  return '$first ${last.trim()[0]}.';
+}

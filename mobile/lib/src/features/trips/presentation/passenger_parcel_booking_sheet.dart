@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../core/formatters/money.dart';
 import '../domain/passenger_trip.dart';
 
 const _primary = Color(0xFF1EB74D);
@@ -14,15 +15,29 @@ const _divider = Color(0xFFE3E5E7);
 class PassengerParcelBookingDraft {
   const PassengerParcelBookingDraft({
     required this.tripId,
+    required this.fromPosition,
+    required this.toPosition,
     required this.parcelSize,
     required this.comment,
     required this.withoutPassenger,
   });
 
   final String tripId;
+  final int fromPosition;
+  final int toPosition;
   final String parcelSize;
   final String comment;
   final bool withoutPassenger;
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'trip_id': tripId,
+    'kind': 'parcel',
+    'from_position': fromPosition,
+    'to_position': toPosition,
+    'seats': 1,
+    'extras': const <String>[],
+    'parcel_size': parcelSize,
+  };
 }
 
 Future<PassengerParcelBookingDraft?> showPassengerParcelBookingSheet(
@@ -167,6 +182,8 @@ class _ParcelBookingSheetState extends State<_ParcelBookingSheet> {
     Navigator.of(context).pop(
       PassengerParcelBookingDraft(
         tripId: widget.details.id,
+        fromPosition: widget.details.stops.first.position,
+        toPosition: widget.details.stops.last.position,
         parcelSize: option.size,
         comment: _commentController.text.trim(),
         withoutPassenger: _withoutPassenger,
@@ -369,7 +386,9 @@ class _ParcelServiceCard extends StatelessWidget {
                 ),
               ),
               Text(
-                selected == null ? 'до $maxPrice₽' : '+${selected!.price}₽',
+                selected == null
+                    ? 'до ${formatRubles(maxPrice)}'
+                    : '+${formatRubles(selected!.price)}',
                 style: const TextStyle(color: _primary, fontSize: 14),
               ),
               const SizedBox(width: 14),
@@ -642,7 +661,7 @@ class _ParcelOptionTile extends StatelessWidget {
                 ),
               ),
               Text(
-                '+${option.price}₽',
+                '+${formatRubles(option.price)}',
                 style: const TextStyle(color: _primary, fontSize: 14),
               ),
               const SizedBox(width: 10),

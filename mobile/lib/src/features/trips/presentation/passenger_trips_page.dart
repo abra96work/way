@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/formatters/money.dart';
 import '../domain/passenger_trip.dart';
 import '../services/passenger_location_service.dart';
 import 'passenger_trip_filter_sheet.dart';
@@ -19,6 +20,9 @@ class PassengerTripsPage extends StatefulWidget {
     this.initialTrips = const [],
     this.onTripPressed,
     this.onCreatePressed,
+    this.onOrdersPressed,
+    this.onChatsPressed,
+    this.onProfilePressed,
     this.locationService,
   });
 
@@ -26,6 +30,9 @@ class PassengerTripsPage extends StatefulWidget {
   final List<PassengerTrip> initialTrips;
   final ValueChanged<PassengerTrip>? onTripPressed;
   final VoidCallback? onCreatePressed;
+  final VoidCallback? onOrdersPressed;
+  final VoidCallback? onChatsPressed;
+  final VoidCallback? onProfilePressed;
   final PassengerLocationService? locationService;
 
   @override
@@ -99,7 +106,12 @@ class _PassengerTripsPageState extends State<PassengerTripsPage> {
                       bottom: 69,
                       child: _buildContent(),
                     ),
-                    _PassengerTabBar(onCreatePressed: widget.onCreatePressed),
+                    _PassengerTabBar(
+                      onCreatePressed: widget.onCreatePressed,
+                      onOrdersPressed: widget.onOrdersPressed,
+                      onChatsPressed: widget.onChatsPressed,
+                      onProfilePressed: widget.onProfilePressed,
+                    ),
                   ],
                 ),
               ),
@@ -544,7 +556,7 @@ class _PassengerTripCard extends StatelessWidget {
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      '${trip.price} ₽',
+                      formatRubles(trip.price),
                       style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
@@ -777,9 +789,17 @@ class _AssetIcon extends StatelessWidget {
 }
 
 class _PassengerTabBar extends StatelessWidget {
-  const _PassengerTabBar({this.onCreatePressed});
+  const _PassengerTabBar({
+    this.onCreatePressed,
+    this.onOrdersPressed,
+    this.onChatsPressed,
+    this.onProfilePressed,
+  });
 
   final VoidCallback? onCreatePressed;
+  final VoidCallback? onOrdersPressed;
+  final VoidCallback? onChatsPressed;
+  final VoidCallback? onProfilePressed;
 
   @override
   Widget build(BuildContext context) {
@@ -803,7 +823,11 @@ class _PassengerTabBar extends StatelessWidget {
               label: 'Поездки',
               selected: true,
             ),
-            const _TabItem(icon: 'nav_orders.svg', label: 'Мои заказы'),
+            _TabItem(
+              icon: 'nav_orders.svg',
+              label: 'Мои заказы',
+              onTap: onOrdersPressed,
+            ),
             Expanded(
               child: Center(
                 child: Material(
@@ -821,8 +845,16 @@ class _PassengerTabBar extends StatelessWidget {
                 ),
               ),
             ),
-            const _TabItem(icon: 'nav_chat.svg', label: 'Чаты'),
-            const _TabItem(icon: 'nav_profile.svg', label: 'Профиль'),
+            _TabItem(
+              icon: 'nav_chat.svg',
+              label: 'Чаты',
+              onTap: onChatsPressed,
+            ),
+            _TabItem(
+              icon: 'nav_profile.svg',
+              label: 'Профиль',
+              onTap: onProfilePressed,
+            ),
           ],
         ),
       ),
@@ -835,34 +867,39 @@ class _TabItem extends StatelessWidget {
     required this.icon,
     required this.label,
     this.selected = false,
+    this.onTap,
   });
 
   final String icon;
   final String label;
   final bool selected;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) => Expanded(
-    child: Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _AssetIcon(icon, size: 24),
-          const SizedBox(height: 2),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              label,
-              style: TextStyle(
-                color: selected
-                    ? _PassengerTripsPageState._text
-                    : _PassengerTripsPageState._secondary,
-                fontSize: 10,
+    child: InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _AssetIcon(icon, size: 24),
+            const SizedBox(height: 2),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: selected
+                      ? _PassengerTripsPageState._text
+                      : _PassengerTripsPageState._secondary,
+                  fontSize: 10,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     ),
   );

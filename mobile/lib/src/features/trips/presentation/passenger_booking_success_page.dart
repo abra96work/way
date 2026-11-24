@@ -84,39 +84,11 @@ class _SuccessMark extends StatelessWidget {
   const _SuccessMark();
 
   @override
-  Widget build(BuildContext context) => SizedBox.square(
-    dimension: 78,
-    child: Stack(
-      alignment: Alignment.center,
-      children: [
-        Container(
-          width: 62,
-          height: 62,
-          decoration: const BoxDecoration(
-            color: Color(0xFFDDF6E4),
-            shape: BoxShape.circle,
-          ),
-        ),
-        Container(
-          width: 38,
-          height: 38,
-          decoration: const BoxDecoration(
-            color: PassengerBookingSuccessPage._primary,
-            shape: BoxShape.circle,
-          ),
-          child: const Icon(Icons.check, color: Colors.white, size: 25),
-        ),
-        const Positioned(
-          left: 1,
-          top: 14,
-          child: Icon(Icons.auto_awesome, color: Color(0xFF69D683), size: 12),
-        ),
-        const Positioned(
-          right: 0,
-          top: 8,
-          child: Icon(Icons.auto_awesome, color: Color(0xFF69D683), size: 10),
-        ),
-      ],
-    ),
+  Widget build(BuildContext context) => Image.asset(
+    'assets/images/passenger/success_check.png',
+    key: const ValueKey('passenger-success-check'),
+    width: 98,
+    height: 86,
+    fit: BoxFit.contain,
   );
 }
