@@ -32,7 +32,7 @@ Future<void> _pump(
 }) async {
   await tester.pumpWidget(
     MaterialApp(
-      home: PassengerProfilePage(booking: booking, onChat: onChat ?? () {}),
+      home: TripPassengerProfilePage(booking: booking, onChat: onChat ?? () {}),
     ),
   );
   await tester.pumpAndSettle();
@@ -77,8 +77,11 @@ void main() {
   test('phone format, accepted statuses and booking label', () {
     expect(formatPhone('+79001110001'), '+7 900 111 00 01');
     expect(formatPhone('12345'), '12345');
-    expect(PassengerProfilePage.isAccepted(TripBookingStatus.pending), isFalse);
-    expect(PassengerProfilePage.isAccepted(TripBookingStatus.paid), isTrue);
+    expect(
+      TripPassengerProfilePage.isAccepted(TripBookingStatus.pending),
+      isFalse,
+    );
+    expect(TripPassengerProfilePage.isAccepted(TripBookingStatus.paid), isTrue);
     expect(_booking(TripBookingStatus.paid).what, '2 места');
     expect(
       const TripBooking(

@@ -10,8 +10,12 @@ import 'driver_trip_page.dart' show PassengerRouteCard;
 /// "Профиль пассажира" from the driver's trip. Before the request is
 /// accepted: name and rating. After: also the phone and the passenger's
 /// part of the route. "Написать" is always there.
-class PassengerProfilePage extends StatelessWidget {
-  const PassengerProfilePage({super.key, required this.booking, this.onChat});
+class TripPassengerProfilePage extends StatelessWidget {
+  const TripPassengerProfilePage({
+    super.key,
+    required this.booking,
+    this.onChat,
+  });
 
   final TripBooking booking;
   final VoidCallback? onChat;

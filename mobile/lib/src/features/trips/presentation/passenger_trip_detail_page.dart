@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../../core/config/app_config.dart';
+import '../../../core/formatters/money.dart';
 import '../domain/passenger_booking.dart';
 import '../domain/passenger_trip.dart';
 import 'passenger_parcel_booking_sheet.dart';
@@ -13,6 +14,9 @@ import 'passenger_seat_booking_sheet.dart';
 typedef LoadPassengerTripDetails = Future<PassengerTripDetails> Function();
 typedef SubmitPassengerSeatBooking = Future<void> Function(
   PassengerSeatBookingDraft draft,
+);
+typedef SubmitPassengerParcelBooking = Future<void> Function(
+  PassengerParcelBookingDraft draft,
 );
 
 class PassengerTripDetailPage extends StatefulWidget {
@@ -32,7 +36,7 @@ class PassengerTripDetailPage extends StatefulWidget {
   final PassengerTripDetails? initialDetails;
   final VoidCallback? onBack;
   final SubmitPassengerSeatBooking? onBookSeat;
-  final VoidCallback? onSendParcel;
+  final SubmitPassengerParcelBooking? onSendParcel;
   final PassengerBooking? booking;
   final VoidCallback? onCancelBooking;
   final VoidCallback? onMessageDriver;
@@ -186,7 +190,17 @@ class _PassengerTripDetailPageState extends State<PassengerTripDetailPage> {
       context,
       details: details,
     );
-    if (draft != null && mounted) widget.onSendParcel?.call();
+    if (draft == null || !mounted) return;
+    try {
+      await widget.onSendParcel?.call(draft);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('Не удалось оформить посылку')),
+        );
+    }
   }
 
   Future<void> _load() async {
@@ -815,7 +829,7 @@ class _PriceCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${details.price} ₽',
+                  formatRubles(details.price),
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -914,7 +928,7 @@ class _SegmentPriceRow extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        Text('${price.price}₽', style: const TextStyle(fontSize: 15)),
+        Text(formatRubles(price.price), style: const TextStyle(fontSize: 15)),
       ],
     ),
   );
@@ -955,7 +969,7 @@ class _PaymentRow extends StatelessWidget {
       children: [
         Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
         Text(
-          '$value ₽',
+          formatRubles(value),
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
       ],

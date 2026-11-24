@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:put/src/app.dart';
@@ -93,19 +94,19 @@ void main() {
 
     await tester.enterText(
       find.byKey(const ValueKey('phone-input')),
-      '257774420',
+      '9001234567',
     );
     await tester.pump();
 
     final field = tester.widget<TextField>(
       find.byKey(const ValueKey('phone-input')),
     );
-    expect(field.controller?.text, '+375 25 777 44 20');
+    expect(field.controller?.text, '+7 900 123 45 67');
     expect(tester.widget<TextButton>(button).onPressed, isNotNull);
 
     await tester.tap(button);
     await tester.pumpAndSettle();
-    expect(requestedPhone, '+375257774420');
+    expect(requestedPhone, '+79001234567');
     expect(find.text('Код для входа отправлен'), findsOneWidget);
   });
 
@@ -218,6 +219,44 @@ void main() {
           .widget<TextButton>(find.byKey(const ValueKey('sms-login-button')))
           .onPressed,
       isNull,
+    );
+  });
+
+  testWidgets('sms code shows the Russian API error message', (tester) async {
+    _setReferenceViewport(tester);
+    final request = RequestOptions(path: '/auth/verify-code');
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SmsCodePage(
+          phone: '+79001234567',
+          initialSeconds: 0,
+          onVerify: (_, _) async => throw DioException(
+            requestOptions: request,
+            response: Response<Map<String, dynamic>>(
+              requestOptions: request,
+              statusCode: 429,
+              data: const {
+                'code': 'too_many_attempts',
+                'message': 'Слишком много попыток. Запросите новый код',
+              },
+            ),
+          ),
+          onResend: (_) async {},
+        ),
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('sms-code-input')),
+      '111111',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('sms-login-button')));
+    await tester.pump();
+
+    expect(
+      find.text('Слишком много попыток. Запросите новый код'),
+      findsOneWidget,
     );
   });
 
@@ -533,7 +572,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('passenger-trip-trip-1')), findsOneWidget);
     expect(find.text('Виктор О.'), findsOneWidget);
-    expect(find.text('1800 ₽'), findsOneWidget);
+    expect(find.text('1 800 ₽'), findsOneWidget);
     expect(find.text('Идёт регистрация пассажиров'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('passenger-trip-trip-1')));
@@ -601,7 +640,7 @@ void main() {
             expect(draft.toPosition, 3);
             expect(draft.seats, 1);
           },
-          onSendParcel: () => parcelSent = true,
+          onSendParcel: (_) async => parcelSent = true,
         ),
       ),
     );
@@ -652,14 +691,14 @@ void main() {
       const Offset(0, -140),
     );
     await tester.pump();
-    expect(find.text('1200 ₽'), findsOneWidget);
-    expect(find.text('150₽'), findsNWidgets(3));
+    expect(find.text('1 200 ₽'), findsOneWidget);
+    expect(find.text('150 ₽'), findsNWidgets(3));
 
     await tester.tap(
       find.byKey(const ValueKey('passenger-detail-price-toggle')),
     );
     await tester.pump();
-    expect(find.text('150₽'), findsNothing);
+    expect(find.text('150 ₽'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -673,7 +712,7 @@ void main() {
         home: PassengerTripDetailPage(
           initialDetails: _samplePassengerTripDetails(seatsAvailable: 0),
           onBookSeat: (_) async {},
-          onSendParcel: () {},
+          onSendParcel: (_) async {},
         ),
       ),
     );
@@ -790,7 +829,7 @@ void main() {
     await tester.tap(find.text('first cancellation'));
     await tester.pumpAndSettle();
     expect(find.text('Отменить бронирование?'), findsOneWidget);
-    expect(find.text('1 / 2'), findsOneWidget);
+    expect(find.text('0 / 2'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey('booking-cancellation-confirm')),
     );
@@ -799,8 +838,15 @@ void main() {
 
     await tester.tap(find.text('blocking cancellation'));
     await tester.pumpAndSettle();
+    expect(find.text('Отменить бронирование?'), findsOneWidget);
+    expect(find.text('1 / 2'), findsOneWidget);
+    await tester.tap(
+      find.byKey(const ValueKey('booking-cancellation-confirm')),
+    );
+    await tester.pumpAndSettle();
     expect(find.textContaining('Это может повлиять'), findsOneWidget);
     expect(find.textContaining('одна отмена'), findsOneWidget);
+    expect(confirmed, 1);
     await tester.tap(
       find.byKey(const ValueKey('booking-cancellation-confirm')),
     );
@@ -868,8 +914,8 @@ void main() {
       find.byKey(const ValueKey('passenger-paid-price-card')),
       findsOneWidget,
     );
-    expect(find.text('50 ₽'), findsOneWidget);
-    expect(find.text('1150 ₽'), findsOneWidget);
+    expect(find.text('50 ₽'), findsOneWidget);
+    expect(find.text('1 150 ₽'), findsOneWidget);
     expect(find.byKey(const ValueKey('passenger-paid-cancel')), findsOneWidget);
     expect(
       find.byKey(const ValueKey('passenger-paid-message')),
