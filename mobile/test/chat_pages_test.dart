@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:put/src/features/chat/domain/chat_models.dart';
 import 'package:put/src/features/chat/presentation/chat_list_page.dart';
 import 'package:put/src/features/chat/presentation/chat_page.dart';
+import 'package:put/src/features/trips/presentation/widgets/passenger_nav_bar.dart';
 
 void main() {
   const chat = AppChat(
@@ -42,6 +43,45 @@ void main() {
     expect(find.text('2'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('chat-chat-1')));
     expect(opened, same(chat));
+  });
+
+  testWidgets('chat list keeps the passenger menu and marks chats selected', (
+    tester,
+  ) async {
+    PassengerNavTab? selected;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ChatListPage(
+          loadChats: () async => const [],
+          onOpenChat: (_) {},
+          onBack: () {},
+          bottomNavigationBar: PassengerNavBar(
+            current: PassengerNavTab.chats,
+            onSelect: (tab) => selected = tab,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('passenger-nav-chats')), findsOneWidget);
+    final chatsLabel = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const ValueKey('passenger-nav-chats')),
+        matching: find.text('Чаты'),
+      ),
+    );
+    final tripsLabel = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const ValueKey('passenger-nav-trips')),
+        matching: find.text('Поездки'),
+      ),
+    );
+    expect(chatsLabel.style?.color, const Color(0xFF0C0C0C));
+    expect(tripsLabel.style?.color, const Color(0xFF61636B));
+
+    await tester.tap(find.byKey(const ValueKey('passenger-nav-profile')));
+    expect(selected, PassengerNavTab.profile);
   });
 
   testWidgets('chat loads, marks read and sends a message', (tester) async {

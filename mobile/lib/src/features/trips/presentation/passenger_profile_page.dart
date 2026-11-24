@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../domain/passenger_profile.dart';
+import 'widgets/passenger_nav_bar.dart';
 
 enum PassengerProfileSection {
   role,
@@ -177,10 +177,14 @@ class _PassengerProfilePageState extends State<PassengerProfilePage> {
                 ),
               ),
             ),
-            _ProfileBottomBar(
-              onTrips: widget.onTrips,
-              onOrders: widget.onOrders,
-              onChats: widget.onChats,
+            PassengerNavBar(
+              current: PassengerNavTab.profile,
+              onSelect: (tab) => switch (tab) {
+                PassengerNavTab.trips => widget.onTrips?.call(),
+                PassengerNavTab.orders => widget.onOrders?.call(),
+                PassengerNavTab.chats => widget.onChats?.call(),
+                PassengerNavTab.profile => null,
+              },
             ),
           ],
         ),
@@ -394,57 +398,6 @@ class _ProfileRow extends StatelessWidget {
               const SizedBox(width: 10),
             ],
           ),
-        ),
-      ),
-    ),
-  );
-}
-
-class _ProfileBottomBar extends StatelessWidget {
-  const _ProfileBottomBar({this.onTrips, this.onOrders, this.onChats});
-
-  final VoidCallback? onTrips;
-  final VoidCallback? onOrders;
-  final VoidCallback? onChats;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    height: 69,
-    decoration: const BoxDecoration(
-      border: Border(top: BorderSide(color: Color(0xFFE4E5E6))),
-    ),
-    child: Row(
-      children: [
-        _nav('nav_trips.svg', 'Главная', onTrips),
-        _nav('nav_orders.svg', 'Мои заказы', onOrders),
-        _nav('nav_chat.svg', 'Чаты', onChats),
-        _nav('nav_profile.svg', 'Профиль', null, selected: true),
-      ],
-    ),
-  );
-
-  Widget _nav(
-    String icon,
-    String label,
-    VoidCallback? onTap, {
-    bool selected = false,
-  }) => Expanded(
-    child: InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Column(
-          children: [
-            SvgPicture.asset('assets/icons/passenger/$icon', width: 24),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                color: selected ? const Color(0xFF0C0C0C) : Colors.grey,
-                fontSize: 10,
-              ),
-            ),
-          ],
         ),
       ),
     ),

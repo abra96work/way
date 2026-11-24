@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_svg/flutter_svg.dart';
 
 import '../domain/passenger_api_exception.dart';
 import '../domain/passenger_booking.dart';
+import 'widgets/passenger_nav_bar.dart';
 
 typedef LoadPassengerBookings = Future<List<PassengerBooking>> Function();
 
@@ -111,12 +111,14 @@ class _PassengerMyBookingsPageState extends State<PassengerMyBookingsPage> {
                 ),
                 _tabs(),
                 Expanded(child: _content()),
-                _PassengerBottomBar(
-                  selected: 1,
-                  onTrips: widget.onTrips,
-                  onOrders: null,
-                  onChats: widget.onChats,
-                  onProfile: widget.onProfile,
+                PassengerNavBar(
+                  current: PassengerNavTab.orders,
+                  onSelect: (tab) => switch (tab) {
+                    PassengerNavTab.trips => widget.onTrips?.call(),
+                    PassengerNavTab.orders => null,
+                    PassengerNavTab.chats => widget.onChats?.call(),
+                    PassengerNavTab.profile => widget.onProfile?.call(),
+                  },
                 ),
               ],
             ),
@@ -347,10 +349,7 @@ class _StatusBadge extends StatelessWidget {
     final label = switch (booking.status) {
       'pending' => 'Заявка отправлена',
       'awaiting_payment' => 'Ожидает оплаты',
-      'paid' =>
-        booking.kind == 'parcel'
-            ? 'Посылка забронирована'
-            : 'Место забронировано',
+      'paid' => 'Оплачено',
       'completed' => 'Завершено',
       'cancelled' => 'Отменено',
       'rejected' => 'Отклонено',
@@ -390,99 +389,6 @@ class _AddressRow extends StatelessWidget {
         child: Text(address, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
     ],
-  );
-}
-
-class _PassengerBottomBar extends StatelessWidget {
-  const _PassengerBottomBar({
-    required this.selected,
-    this.onTrips,
-    this.onOrders,
-    this.onChats,
-    this.onProfile,
-  });
-
-  final int selected;
-  final VoidCallback? onTrips;
-  final VoidCallback? onOrders;
-  final VoidCallback? onChats;
-  final VoidCallback? onProfile;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    height: 69,
-    decoration: const BoxDecoration(
-      color: _PassengerMyBookingsPageState._background,
-      border: Border(
-        top: BorderSide(color: _PassengerMyBookingsPageState._divider),
-      ),
-    ),
-    child: Row(
-      children: [
-        _NavItem(
-          icon: 'nav_trips.svg',
-          label: 'Поездки',
-          selected: selected == 0,
-          onTap: onTrips,
-        ),
-        _NavItem(
-          icon: 'nav_orders.svg',
-          label: 'Мои заказы',
-          selected: selected == 1,
-          onTap: onOrders,
-        ),
-        _NavItem(
-          icon: 'nav_chat.svg',
-          label: 'Чаты',
-          selected: false,
-          onTap: onChats,
-        ),
-        _NavItem(
-          icon: 'nav_profile.svg',
-          label: 'Профиль',
-          selected: false,
-          onTap: onProfile,
-        ),
-      ],
-    ),
-  );
-}
-
-class _NavItem extends StatelessWidget {
-  const _NavItem({
-    required this.icon,
-    required this.label,
-    required this.selected,
-    this.onTap,
-  });
-  final String icon;
-  final String label;
-  final bool selected;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Column(
-          children: [
-            SvgPicture.asset('assets/icons/passenger/$icon', width: 24),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: TextStyle(
-                color: selected
-                    ? _PassengerMyBookingsPageState._text
-                    : const Color(0xFF61636B),
-                fontSize: 10,
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
   );
 }
 

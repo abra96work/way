@@ -61,6 +61,7 @@ import 'features/trips/presentation/passenger_role_page.dart';
 import 'features/trips/presentation/passenger_account_blocked_page.dart';
 import 'features/trips/presentation/passenger_trip_detail_page.dart';
 import 'features/trips/presentation/passenger_trips_page.dart';
+import 'features/trips/presentation/widgets/passenger_nav_bar.dart';
 
 class PutApp extends StatefulWidget {
   const PutApp({super.key});
@@ -200,7 +201,8 @@ class _PutAppState extends State<PutApp> {
             onTripPressed: (trip) =>
                 context.push('/passenger-trips/${trip.id}'),
             onOrdersPressed: () => context.go('/passenger-bookings'),
-            onChatsPressed: () => context.push('/chats'),
+            onChatsPressed: () =>
+                _openPassengerTab(context, PassengerNavTab.chats),
             onProfilePressed: () => context.go('/passenger-profile'),
           ),
           routes: [
@@ -236,7 +238,7 @@ class _PutAppState extends State<PutApp> {
               await context.push('/passenger-bookings/${booking.id}');
             },
             onTrips: () => context.go('/passenger-trips'),
-            onChats: () => context.push('/chats'),
+            onChats: () => _openPassengerTab(context, PassengerNavTab.chats),
             onProfile: () => context.go('/passenger-profile'),
           ),
           routes: [
@@ -276,7 +278,7 @@ class _PutAppState extends State<PutApp> {
             onLogout: _logout,
             onTrips: () => context.go('/passenger-trips'),
             onOrders: () => context.go('/passenger-bookings'),
-            onChats: () => context.push('/chats'),
+            onChats: () => _openPassengerTab(context, PassengerNavTab.chats),
           ),
           routes: [
             GoRoute(
@@ -329,13 +331,24 @@ class _PutAppState extends State<PutApp> {
         ),
         GoRoute(
           path: '/chats',
-          builder: (context, state) => ChatListPage(
-            loadChats: _loadChats,
-            onOpenChat: (chat) => context.push('/chats/${chat.id}'),
-            onBack: () => context.canPop()
-                ? context.pop()
-                : context.go('/passenger-trips'),
-          ),
+          builder: (context, state) {
+            final driverMode = _pendingRole == TripRole.driver;
+            return ChatListPage(
+              loadChats: _loadChats,
+              onOpenChat: (chat) => context.push('/chats/${chat.id}'),
+              onBack: () =>
+                  context.go(driverMode ? '/driver/trips' : '/passenger-trips'),
+              bottomNavigationBar: driverMode
+                  ? DriverNavBar(
+                      current: DriverTab.chats,
+                      onSelect: (tab) => _openDriverTab(context, tab),
+                    )
+                  : PassengerNavBar(
+                      current: PassengerNavTab.chats,
+                      onSelect: (tab) => _openPassengerTab(context, tab),
+                    ),
+            );
+          },
           routes: [
             GoRoute(
               path: ':chatId',
@@ -1008,6 +1021,7 @@ class _PutAppState extends State<PutApp> {
 
   /// Driver's bottom bar: "+", "Мои заказы" and "Профиль" have screens.
   void _openDriverTab(BuildContext context, DriverTab tab) {
+    _pendingRole = TripRole.driver;
     switch (tab) {
       case DriverTab.create:
         context.push('/driver/trips/new');
@@ -1016,10 +1030,24 @@ class _PutAppState extends State<PutApp> {
       case DriverTab.orders:
         context.go('/driver/trips');
       case DriverTab.chats:
-        context.push('/chats');
+        context.go('/chats');
       // "Поездки" comes with its screen.
       case DriverTab.trips:
         _comingSoon();
+    }
+  }
+
+  void _openPassengerTab(BuildContext context, PassengerNavTab tab) {
+    _pendingRole = TripRole.passenger;
+    switch (tab) {
+      case PassengerNavTab.trips:
+        context.go('/passenger-trips');
+      case PassengerNavTab.orders:
+        context.go('/passenger-bookings');
+      case PassengerNavTab.chats:
+        context.go('/chats');
+      case PassengerNavTab.profile:
+        context.go('/passenger-profile');
     }
   }
 

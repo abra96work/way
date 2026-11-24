@@ -161,6 +161,52 @@ void main() {
     expect(cancelled, isTrue);
   });
 
+  testWidgets('pay reloads the booking and exposes its paid state', (
+    tester,
+  ) async {
+    _setViewport(tester);
+    var status = 'awaiting_payment';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerBookingDetailPage(
+          loadBooking: () async =>
+              PassengerBooking.fromJson(_bookingJson(status: status)),
+          onBack: () {},
+          onCancel: (_) async {},
+          onPay: (_) async => status = 'paid',
+          onMessageDriver: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('passenger-booking-pay')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('passenger-booking-pay')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('passenger-booking-cancel')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('paid booking has the "Оплачено" status', (tester) async {
+    _setViewport(tester);
+    final paid = PassengerBooking.fromJson(_bookingJson(status: 'paid'));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerMyBookingsPage(
+          loadBookings: () async => [paid],
+          onBookingPressed: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Оплачено'), findsOneWidget);
+  });
+
   testWidgets('paid cancellation shows refund details and confirmation', (
     tester,
   ) async {

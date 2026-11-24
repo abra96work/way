@@ -6,11 +6,21 @@ import 'package:put/src/features/driver/presentation/create_trip/route_step_page
 const _ekb = City(id: 1, name: 'Екатеринбург', region: 'Свердловская область');
 const _asbest = City(id: 9, name: 'Асбест', region: 'Свердловская область');
 const _berez = City(id: 2, name: 'Берёзовский', region: 'Свердловская область');
+const _chelyabinsk = City(
+  id: 21,
+  name: 'Челябинск',
+  region: 'Челябинская область',
+);
 
 // Tuesday 24 November 2026, 10:10 local.
 DateTime _now() => DateTime(2026, 11, 24, 10, 10);
 
-Future<List<City>> _cities() async => const [_ekb, _berez, _asbest];
+Future<List<City>> _cities() async => const [
+  _ekb,
+  _berez,
+  _asbest,
+  _chelyabinsk,
+];
 
 Finder _key(String key) => find.byKey(ValueKey(key));
 
@@ -283,11 +293,25 @@ void main() {
     expect(nextCalls, 1);
   });
 
+  testWidgets('Челябинск in an intermediate stop keeps "Далее" enabled', (
+    tester,
+  ) async {
+    final draft = _filledDraft();
+    draft
+      ..addStop()
+      ..updateStop(1, text: 'Мира 1, Челябинск', city: _chelyabinsk);
+
+    await _pump(tester, draft);
+
+    expect(_nextButton(tester).onPressed, isNotNull);
+  });
+
   test('detectCity takes the last matching part', () {
-    const cities = [_ekb, _asbest];
+    const cities = [_ekb, _asbest, _chelyabinsk];
     expect(detectCity('Победителей 1, Асбест', cities), _asbest);
     expect(detectCity('Асбестовская ул., Екатеринбург', cities), _ekb);
     expect(detectCity('Победителей 1', cities), isNull);
+    expect(detectCity('Мира 1, Челябинск', cities), _chelyabinsk);
   });
 
   test('arrival earlier than departure means the next day', () {

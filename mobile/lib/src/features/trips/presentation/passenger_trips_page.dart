@@ -7,6 +7,7 @@ import '../../../core/formatters/money.dart';
 import '../domain/passenger_trip.dart';
 import '../services/passenger_location_service.dart';
 import 'passenger_trip_filter_sheet.dart';
+import 'widgets/passenger_nav_bar.dart';
 
 typedef LoadPassengerTrips = Future<List<PassengerTrip>> Function(
   String type,
@@ -104,10 +105,22 @@ class _PassengerTripsPageState extends State<PassengerTripsPage> {
                       bottom: 69,
                       child: _buildContent(),
                     ),
-                    _PassengerTabBar(
-                      onOrdersPressed: widget.onOrdersPressed,
-                      onChatsPressed: widget.onChatsPressed,
-                      onProfilePressed: widget.onProfilePressed,
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: PassengerNavBar(
+                        current: PassengerNavTab.trips,
+                        onSelect: (tab) => switch (tab) {
+                          PassengerNavTab.trips => null,
+                          PassengerNavTab.orders =>
+                            widget.onOrdersPressed?.call(),
+                          PassengerNavTab.chats =>
+                            widget.onChatsPressed?.call(),
+                          PassengerNavTab.profile =>
+                            widget.onProfilePressed?.call(),
+                        },
+                      ),
                     ),
                   ],
                 ),
@@ -782,104 +795,6 @@ class _AssetIcon extends StatelessWidget {
   Widget build(BuildContext context) => SizedBox.square(
     dimension: size,
     child: SvgPicture.asset('assets/icons/passenger/$name'),
-  );
-}
-
-class _PassengerTabBar extends StatelessWidget {
-  const _PassengerTabBar({
-    this.onOrdersPressed,
-    this.onChatsPressed,
-    this.onProfilePressed,
-  });
-
-  final VoidCallback? onOrdersPressed;
-  final VoidCallback? onChatsPressed;
-  final VoidCallback? onProfilePressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Positioned(
-      left: 0,
-      right: 0,
-      bottom: 0,
-      height: 69,
-      child: DecoratedBox(
-        decoration: const BoxDecoration(
-          color: _PassengerTripsPageState._background,
-          border: Border(
-            top: BorderSide(color: _PassengerTripsPageState._divider),
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const _TabItem(
-              icon: 'nav_trips.svg',
-              label: 'Поездки',
-              selected: true,
-            ),
-            _TabItem(
-              icon: 'nav_orders.svg',
-              label: 'Мои заказы',
-              onTap: onOrdersPressed,
-            ),
-            _TabItem(
-              icon: 'nav_chat.svg',
-              label: 'Чаты',
-              onTap: onChatsPressed,
-            ),
-            _TabItem(
-              icon: 'nav_profile.svg',
-              label: 'Профиль',
-              onTap: onProfilePressed,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TabItem extends StatelessWidget {
-  const _TabItem({
-    required this.icon,
-    required this.label,
-    this.selected = false,
-    this.onTap,
-  });
-
-  final String icon;
-  final String label;
-  final bool selected;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.only(top: 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _AssetIcon(icon, size: 24),
-            const SizedBox(height: 2),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: selected
-                      ? _PassengerTripsPageState._text
-                      : _PassengerTripsPageState._secondary,
-                  fontSize: 10,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    ),
   );
 }
 

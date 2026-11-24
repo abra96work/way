@@ -9,11 +9,13 @@ class ChatListPage extends StatefulWidget {
     required this.loadChats,
     required this.onOpenChat,
     required this.onBack,
+    this.bottomNavigationBar,
   });
 
   final Future<List<AppChat>> Function() loadChats;
   final void Function(AppChat chat) onOpenChat;
   final VoidCallback onBack;
+  final Widget? bottomNavigationBar;
 
   @override
   State<ChatListPage> createState() => _ChatListPageState();
@@ -47,6 +49,7 @@ class _ChatListPageState extends State<ChatListPage> {
       title: const Text('Чаты', style: TextStyle(fontWeight: FontWeight.w700)),
     ),
     body: _content(),
+    bottomNavigationBar: widget.bottomNavigationBar,
   );
 
   Widget _content() {

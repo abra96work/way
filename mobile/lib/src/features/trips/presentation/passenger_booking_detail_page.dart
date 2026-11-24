@@ -376,7 +376,10 @@ class _PassengerBookingDetailPageState
         child: booking.canPay
             ? FilledButton(
                 key: const ValueKey('passenger-booking-pay'),
-                onPressed: () => widget.onPay(booking),
+                onPressed: () async {
+                  await widget.onPay(booking);
+                  if (mounted) await _load();
+                },
                 style: FilledButton.styleFrom(backgroundColor: _primary),
                 child: const Text('Оплатить'),
               )

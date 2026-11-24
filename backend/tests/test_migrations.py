@@ -25,6 +25,9 @@ def test_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
     with sqlite3.connect(db_path) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master")}
         cities = connection.execute("SELECT COUNT(*) FROM cities").fetchone()[0]
+        chelyabinsk = connection.execute(
+            "SELECT region FROM cities WHERE name = ?", ("Челябинск",)
+        ).fetchone()
         models = connection.execute("SELECT COUNT(*) FROM car_models").fetchone()[0]
     assert {
         "users",
@@ -43,6 +46,7 @@ def test_migrations_upgrade_and_downgrade(tmp_path: Path) -> None:
         "chat_messages",
     } <= tables
     assert cities >= 20
+    assert chelyabinsk == ("Челябинская область",)
     assert models >= 50
 
     _alembic(db_path, "downgrade", "base")
