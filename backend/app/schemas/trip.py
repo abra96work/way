@@ -1,5 +1,6 @@
 import enum
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from datetime import date as Date
 from typing import Annotated, Self
 from uuid import UUID
 
@@ -18,7 +19,7 @@ PositiveRubles = Annotated[int, Field(ge=1, le=100_000, description="Целые 
 PARCEL_LIMITS: dict[ParcelSize, tuple[tuple[int, int, int], int]] = {
     ParcelSize.S: ((30, 30, 20), 5),
     ParcelSize.M: ((50, 40, 30), 10),
-    ParcelSize.L: ((80, 60, 40), 20),
+    ParcelSize.L: ((80, 60, 50), 30),
 }
 
 
@@ -65,6 +66,9 @@ class ParcelPriceIn(BaseModel):
 class TripWrite(BaseModel):
     car_id: UUID
     departure_at: datetime = Field(description="С часовым поясом, минуты кратны 30")
+    arrival_at: datetime | None = Field(
+        default=None, description="Примерное время прибытия, с часовым поясом"
+    )
     seats_total: int = Field(ge=1, le=60)
     booking_mode: BookingMode = BookingMode.manual
     stops: list[StopIn] = Field(min_length=2, description="Отправление, остановки, прибытие")
@@ -92,6 +96,14 @@ class TripWrite(BaseModel):
             or self.departure_at.microsecond
         ):
             raise ValueError("Время отправления должно быть кратно 30 минутам")
+        if self.arrival_at is not None:
+            if self.arrival_at.tzinfo is None:
+                raise ValueError("arrival_at должен содержать часовой пояс")
+            self.arrival_at = self.arrival_at.astimezone(UTC)
+            if self.arrival_at <= self.departure_at:
+                raise ValueError("Время прибытия должно быть позже времени отправления")
+            if self.arrival_at - self.departure_at > timedelta(hours=48):
+                raise ValueError("Поездка не может длиться больше 48 часов")
         if self.min_price > self.full_price:
             raise ValueError("Минимальная стоимость больше цены всего маршрута")
         if self.stops[0].city_id == self.stops[-1].city_id:
@@ -128,7 +140,26 @@ class SeatsUpdate(BaseModel):
 
 class ReverseTripCreate(BaseModel):
     departure_at: datetime
+    arrival_at: datetime | None = Field(
+        default=None,
+        description="Своё время прибытия; если не задано — длительность как у исходной поездки",
+    )
     publish: bool = False
+
+
+class LimitUsage(BaseModel):
+    used: int
+    limit: int
+
+
+class PublishLimits(BaseModel):
+    """Счётчики лимитов публикации для дня отправления и его недели."""
+
+    date: Date
+    day: LimitUsage = Field(description="Поездка и обратная в одни сутки")
+    week: LimitUsage = Field(description="Календарная неделя пн–вс")
+    week_start: Date
+    week_end: Date
 
 
 # ---------- output ----------
@@ -169,13 +200,22 @@ class ParcelPriceRead(ParcelSizeRead):
     price: PriceRead
 
 
+class TripRequests(BaseModel):
+    """Bookings of the driver's own trip, for the «Мои заказы» card."""
+
+    count: int = Field(description="Активные заявки и брони (места и посылки)")
+    avatars: list[str] = Field(description="Аватары первых пассажиров, не больше двух")
+
+
 class TripRead(BaseModel):
     id: UUID
+    number: int | None = Field(default=None, description="Номер заказа для показа")
     status: TripStatusView
     driver: RatedUser
     car: CarRead
     vehicle_type: VehicleType
     departure_at: datetime
+    arrival_at: datetime | None
     seats_total: int
     seats_available: int
     booking_mode: BookingMode
@@ -187,5 +227,11 @@ class TripRead(BaseModel):
     parcel_prices: list[ParcelPriceRead]
     return_of_trip_id: UUID | None
     is_editable: bool = Field(description="Можно менять маршрут, время и цены")
+    accepts_bookings: bool = Field(
+        default=True, description="false — водитель завершил приём пассажиров"
+    )
     created_at: datetime
     published_at: datetime | None
+    requests: TripRequests | None = Field(
+        default=None, description="Только в «Мои поездки» водителя (GET /trips/mine)"
+    )

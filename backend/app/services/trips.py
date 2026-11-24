@@ -1,16 +1,24 @@
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.config import get_settings
 from app.core.errors import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.core.security import as_utc, utcnow
+from app.models.booking import (
+    ACTIVE_BOOKING_STATUSES,
+    Booking,
+    BookingStatus,
+    CancelledBy,
+    Payment,
+)
 from app.models.car import Car, CarModel
 from app.models.city import City
+from app.models.feedback import ParticipantRole
 from app.models.trip import (
     Trip,
     TripExtra,
@@ -21,14 +29,17 @@ from app.models.trip import (
 )
 from app.models.user import FacePhotoStatus, User
 from app.schemas.city import CityRead
+from app.schemas.feedback import SanctionInfo
 from app.schemas.search import SegmentQuote
 from app.schemas.trip import (
     PARCEL_LIMITS,
     ExtraIn,
     ExtraRead,
+    LimitUsage,
     ParcelPriceIn,
     ParcelPriceRead,
     PriceRead,
+    PublishLimits,
     ReverseTripCreate,
     SegmentPriceIn,
     SegmentPriceRead,
@@ -37,10 +48,20 @@ from app.schemas.trip import (
     TripCreate,
     TripListFilter,
     TripRead,
+    TripRequests,
     TripStatusView,
     TripWrite,
 )
+from app.services import sanctions
+from app.services.availability import (
+    active_bookings_count,
+    free_seats,
+    seat_bookings,
+    segment_occupancy,
+)
 from app.services.cars import to_read as car_to_read
+from app.services.media import media_url
+from app.services.notifications import NotificationType, notify
 from app.services.pricing import route_price, with_commission
 from app.services.rating import driver_stats
 from app.services.users import to_rated
@@ -100,8 +121,7 @@ def segment_driver_price(trip: Trip, from_position: int, to_position: int) -> in
 async def quote(db: AsyncSession, trip: Trip, from_position: int, to_position: int) -> SegmentQuote:
     if not 0 <= from_position < to_position < len(trip.stops):
         raise AppError("Неверные остановки посадки и высадки", code="invalid_segment")
-    # TODO(stage 5): free seats on this particular segment.
-    free = max(trip.seats_total - await booked_seats(db, trip), 0)
+    free = await segment_free_seats(db, trip, from_position, to_position)
     return SegmentQuote(
         from_position=from_position,
         to_position=to_position,
@@ -121,13 +141,22 @@ def effective_status(trip: Trip, now: datetime | None = None) -> TripStatusView:
 
 
 async def count_active_bookings(db: AsyncSession, trip: Trip) -> int:
-    # TODO(stage 5): count pending/awaiting_payment/paid bookings of the trip.
-    return 0
+    """Pending, awaiting payment and paid bookings (seats and parcels)."""
+    return await active_bookings_count(db, trip.id)
+
+
+async def _occupancy(db: AsyncSession, trip: Trip) -> list[int]:
+    bookings = (await seat_bookings(db, [trip.id]))[trip.id]
+    return segment_occupancy(len(trip.stops), bookings)
 
 
 async def booked_seats(db: AsyncSession, trip: Trip) -> int:
-    # TODO(stage 5): max seats taken on any segment by active bookings.
-    return 0
+    """The most seats taken on any segment: the floor for `seats_total`."""
+    return max(await _occupancy(db, trip), default=0)
+
+
+async def segment_free_seats(db: AsyncSession, trip: Trip, start: int, end: int) -> int:
+    return free_seats(trip.seats_total, await _occupancy(db, trip), start, end)
 
 
 async def _ensure_editable(db: AsyncSession, trip: Trip) -> None:
@@ -151,6 +180,16 @@ def price_read(driver_price: int) -> PriceRead:
     )
 
 
+def stop_read(stop: TripStop) -> StopRead:
+    return StopRead(
+        position=stop.position,
+        city=CityRead.model_validate(stop.city),
+        address=stop.address,
+        lat=stop.lat,
+        lng=stop.lng,
+    )
+
+
 async def to_read(db: AsyncSession, trip: Trip) -> TripRead:
     seats_taken = await booked_seats(db, trip)
     editable = trip.status != TripStatus.cancelled and not is_finished(trip)
@@ -159,24 +198,17 @@ async def to_read(db: AsyncSession, trip: Trip) -> TripRead:
     stats = (await driver_stats(db, [trip.driver_id]))[trip.driver_id]
     return TripRead(
         id=trip.id,
+        number=trip.number,
         status=effective_status(trip),
         driver=to_rated(trip.driver, stats),
         car=car_to_read(trip.car),
         vehicle_type=trip.car.vehicle_type,
         departure_at=as_utc(trip.departure_at),
+        arrival_at=as_utc(trip.arrival_at) if trip.arrival_at else None,
         seats_total=trip.seats_total,
         seats_available=max(trip.seats_total - seats_taken, 0),
         booking_mode=trip.booking_mode,
-        stops=[
-            StopRead(
-                position=stop.position,
-                city=CityRead.model_validate(stop.city),
-                address=stop.address,
-                lat=stop.lat,
-                lng=stop.lng,
-            )
-            for stop in trip.stops
-        ],
+        stops=[stop_read(stop) for stop in trip.stops],
         full_price=price_read(trip.full_price),
         min_price=price_read(trip.min_price),
         segment_prices=[
@@ -204,9 +236,28 @@ async def to_read(db: AsyncSession, trip: Trip) -> TripRead:
         ],
         return_of_trip_id=trip.return_of_trip_id,
         is_editable=editable,
+        accepts_bookings=trip.booking_closed_at is None,
         created_at=as_utc(trip.created_at),
         published_at=as_utc(trip.published_at) if trip.published_at else None,
     )
+
+
+async def requests_summary(db: AsyncSession, trip: Trip) -> TripRequests:
+    """Active bookings of the trip and the first passengers' avatars."""
+    bookings = list(
+        await db.scalars(
+            select(Booking)
+            .where(Booking.trip_id == trip.id, Booking.status.in_(ACTIVE_BOOKING_STATUSES))
+            .options(joinedload(Booking.passenger))
+            .order_by(Booking.created_at)
+        )
+    )
+    avatars: list[str] = []
+    for booking in bookings:
+        url = media_url(booking.passenger.avatar_path)
+        if url and url not in avatars:
+            avatars.append(url)
+    return TripRequests(count=len(bookings), avatars=avatars[:2])
 
 
 # ---------- validation ----------
@@ -239,11 +290,69 @@ async def _check_payload(db: AsyncSession, driver: User, payload: TripWrite) -> 
     return car
 
 
+def _days_word(n: int) -> str:
+    """Russian plural of «день»: 1 день, 3 дня, 7 дней."""
+    if n % 10 == 1 and n % 100 != 11:
+        return "день"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return "дня"
+    return "дней"
+
+
+def local_today() -> date:
+    return _local_date(utcnow())
+
+
+def _local_date(moment: datetime) -> date:
+    return moment.astimezone(ZoneInfo(get_settings().local_timezone)).date()
+
+
 def _local_day_bounds(moment: datetime) -> tuple[datetime, datetime]:
     zone = ZoneInfo(get_settings().local_timezone)
-    day = moment.astimezone(zone).date()
+    day = _local_date(moment)
     start = datetime.combine(day, time.min, tzinfo=zone)
     return start.astimezone(UTC), (start + timedelta(days=1)).astimezone(UTC)
+
+
+def _local_week_bounds(moment: datetime) -> tuple[datetime, datetime]:
+    """Monday 00:00 to next Monday 00:00 of the local calendar week, in UTC."""
+    zone = ZoneInfo(get_settings().local_timezone)
+    day = _local_date(moment)
+    start = datetime.combine(day - timedelta(days=day.weekday()), time.min, tzinfo=zone)
+    return start.astimezone(UTC), (start + timedelta(days=7)).astimezone(UTC)
+
+
+async def _count_published(
+    db: AsyncSession, driver: User, start: datetime, end: datetime, exclude: UUID | None = None
+) -> int:
+    query = select(func.count(Trip.id)).where(
+        Trip.driver_id == driver.id,
+        Trip.status == TripStatus.published,
+        Trip.departure_at >= start,
+        Trip.departure_at < end,
+    )
+    if exclude is not None:
+        query = query.where(Trip.id != exclude)
+    return await db.scalar(query) or 0
+
+
+async def publish_limits(db: AsyncSession, driver: User, day: date) -> PublishLimits:
+    """How much of the daily and weekly publishing limits is used for [day]."""
+    zone = ZoneInfo(get_settings().local_timezone)
+    moment = datetime.combine(day, time(12), tzinfo=zone)
+    day_start, day_end = _local_day_bounds(moment)
+    week_start, week_end = _local_week_bounds(moment)
+    monday = _local_date(week_start)
+    return PublishLimits(
+        date=day,
+        day=LimitUsage(used=await _count_published(db, driver, day_start, day_end), limit=2),
+        week=LimitUsage(
+            used=await _count_published(db, driver, week_start, week_end),
+            limit=get_settings().trip_week_limit,
+        ),
+        week_start=monday,
+        week_end=monday + timedelta(days=6),
+    )
 
 
 def _endpoints(trip: Trip) -> tuple[int, int]:
@@ -270,10 +379,10 @@ async def _check_publishable(db: AsyncSession, driver: User, trip: Trip) -> None
     departure = as_utc(trip.departure_at)
     if departure <= now:
         raise AppError("Время отправления уже прошло", code="departure_in_past")
-    if departure > now + timedelta(days=settings.trip_publish_days_ahead):
+    days = settings.trip_publish_days_ahead
+    if departure > now + timedelta(days=days):
         raise AppError(
-            f"Публиковать поездки можно не дальше чем на {settings.trip_publish_days_ahead} дня "
-            "вперёд",
+            f"Публиковать поездки можно не дальше чем на {days} {_days_word(days)} вперёд",
             code="departure_too_far",
         )
 
@@ -295,9 +404,26 @@ async def _check_publishable(db: AsyncSession, driver: User, trip: Trip) -> None
     origin, destination = _endpoints(trip)
     reverse_ok = len(same_day) == 1 and _endpoints(same_day[0]) == (destination, origin)
     if same_day and not reverse_ok:
+        # Only a trip and its reverse can share a day, so a second one is "back".
         raise ConflictError(
             "В сутки можно опубликовать одну поездку и одну в обратном направлении",
             code="daily_trip_limit",
+            details={
+                "date": _local_date(departure).isoformat(),
+                "published": len(same_day),
+                "there": {"used": 1, "limit": 1},
+                "back": {"used": 1 if len(same_day) > 1 else 0, "limit": 1},
+            },
+        )
+
+    week_start, week_end = _local_week_bounds(departure)
+    week_limit = settings.trip_week_limit
+    used = await _count_published(db, driver, week_start, week_end, exclude=trip.id)
+    if used >= week_limit:
+        raise ConflictError(
+            f"За неделю можно опубликовать не больше {week_limit} поездок",
+            code="weekly_trip_limit",
+            details={"used": used, "limit": week_limit},
         )
 
 
@@ -307,6 +433,7 @@ async def _check_publishable(db: AsyncSession, driver: User, trip: Trip) -> None
 def _apply(trip: Trip, payload: TripWrite) -> None:
     trip.car_id = payload.car_id
     trip.departure_at = payload.departure_at
+    trip.arrival_at = payload.arrival_at
     trip.seats_total = payload.seats_total
     trip.booking_mode = payload.booking_mode
     trip.full_price = payload.full_price
@@ -337,6 +464,7 @@ async def create_trip(
 ) -> Trip:
     await _check_payload(db, driver, payload)
     trip = Trip(driver_id=driver.id, status=TripStatus.draft, return_of_trip_id=return_of)
+    trip.number = (await db.scalar(select(func.max(Trip.number))) or 1000) + 1
     _apply(trip, payload)
     db.add(trip)
     if payload.publish:
@@ -376,6 +504,18 @@ async def update_seats(db: AsyncSession, driver: User, trip_id: UUID, seats_tota
     return await get_own_trip(db, driver, trip.id)
 
 
+async def set_accepting_bookings(
+    db: AsyncSession, driver: User, trip_id: UUID, *, accepting: bool
+) -> Trip:
+    """«Завершить приём пассажиров» (and back): existing bookings stay."""
+    trip = await get_own_trip(db, driver, trip_id)
+    if trip.status != TripStatus.published or effective_status(trip) != TripStatusView.published:
+        raise ConflictError("Поездка уже неактивна", code="trip_inactive")
+    trip.booking_closed_at = None if accepting else (trip.booking_closed_at or utcnow())
+    await db.commit()
+    return await get_own_trip(db, driver, trip.id)
+
+
 async def publish_trip(db: AsyncSession, driver: User, trip_id: UUID) -> Trip:
     trip = await get_own_trip(db, driver, trip_id)
     if trip.status != TripStatus.draft:
@@ -386,22 +526,75 @@ async def publish_trip(db: AsyncSession, driver: User, trip_id: UUID) -> Trip:
     return await get_own_trip(db, driver, trip.id)
 
 
-async def cancel_trip(db: AsyncSession, driver: User, trip_id: UUID) -> Trip:
+async def _cancellable_trip(db: AsyncSession, driver: User, trip_id: UUID) -> Trip:
     trip = await get_own_trip(db, driver, trip_id)
     if effective_status(trip) != TripStatusView.published:
         raise ConflictError("Отменить можно только активную поездку", code="trip_not_active")
-    # TODO(stage 6): cancelling with bookings warns the driver and counts toward a block.
+    return trip
+
+
+async def cancel_preview(db: AsyncSession, driver: User, trip_id: UUID) -> SanctionInfo:
+    trip = await _cancellable_trip(db, driver, trip_id)
+    violation = await sanctions.trip_has_registered_passengers(db, trip.id)
+    return await sanctions.preview(db, driver, is_violation=violation)
+
+
+async def cancel_trip(db: AsyncSession, driver: User, trip_id: UUID) -> tuple[Trip, SanctionInfo]:
+    """Cancel the trip and all its bookings; a violation if passengers were registered."""
+    trip = await _cancellable_trip(db, driver, trip_id)
+    if await sanctions.trip_has_registered_passengers(db, trip.id):
+        sanction = await sanctions.record_violation(
+            db, driver, ParticipantRole.driver, trip_id=trip.id
+        )
+    else:
+        sanction = await sanctions.preview(db, driver, is_violation=False)
+    now = utcnow()
     trip.status = TripStatus.cancelled
-    trip.cancelled_at = utcnow()
+    trip.cancelled_at = now
+    bookings = await db.scalars(
+        select(Booking).where(
+            Booking.trip_id == trip.id, Booking.status.in_(ACTIVE_BOOKING_STATUSES)
+        )
+    )
+    for booking in list(bookings):
+        booking.status = BookingStatus.cancelled
+        booking.cancelled_by = CancelledBy.driver
+        booking.cancelled_at = now
+        body = "Водитель отменил поездку, бронь аннулирована"
+        # The passenger is not at fault: the paid commission goes back in full.
+        payments = await db.scalars(
+            select(Payment).where(Payment.booking_id == booking.id, Payment.status == "succeeded")
+        )
+        refunded = 0
+        for payment in payments:
+            payment.status = "refunded"
+            refunded += payment.amount
+        if refunded:
+            days = get_settings().refund_period_days
+            rubles = f"{refunded:,}".replace(",", " ")
+            body += f". {rubles} ₽ вернутся на карту в течение {days} дней"
+        notify(
+            db,
+            booking.passenger_id,
+            NotificationType.trip_cancelled,
+            "Поездка отменена",
+            body,
+            trip_id=trip.id,
+            booking_id=booking.id,
+        )
     await db.commit()
-    return await get_own_trip(db, driver, trip.id)
+    return await get_own_trip(db, driver, trip.id), sanction
 
 
 async def delete_trip(db: AsyncSession, driver: User, trip_id: UUID) -> None:
     trip = await get_own_trip(db, driver, trip_id)
-    if await count_active_bookings(db, trip):
+    # Any booking, even a rejected or cancelled one, is history (payments, chat): keep it.
+    has_history = await db.scalar(
+        select(func.count()).select_from(Booking).where(Booking.trip_id == trip.id)
+    )
+    if has_history:
         raise ConflictError(
-            "Поездку с пассажирами нельзя удалить, только отменить", code="trip_has_bookings"
+            "У поездки есть бронирования — её можно только отменить", code="trip_has_bookings"
         )
     await db.delete(trip)
     await db.commit()
@@ -416,6 +609,13 @@ async def reverse_trip(
     mirrored = TripCreate(
         car_id=source.car_id,
         departure_at=payload.departure_at,
+        # Keep the same trip duration for the way back.
+        arrival_at=payload.arrival_at
+        or (
+            payload.departure_at + (as_utc(source.arrival_at) - as_utc(source.departure_at))
+            if source.arrival_at
+            else None
+        ),
         seats_total=source.seats_total,
         booking_mode=source.booking_mode,
         stops=[

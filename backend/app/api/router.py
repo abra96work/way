@@ -1,6 +1,18 @@
 from fastapi import APIRouter
 
-from app.api.routes import auth, cars, cities, health, search, trips, users
+from app.api.routes import (
+    auth,
+    bookings,
+    cars,
+    chat,
+    cities,
+    feedback,
+    health,
+    notifications,
+    search,
+    trips,
+    users,
+)
 
 api_router = APIRouter()
 api_router.include_router(health.router)
@@ -10,3 +22,7 @@ api_router.include_router(cities.router)
 api_router.include_router(cars.router)
 api_router.include_router(trips.router)
 api_router.include_router(search.router)
+api_router.include_router(bookings.router)
+api_router.include_router(notifications.router)
+api_router.include_router(feedback.router)
+api_router.include_router(chat.router)

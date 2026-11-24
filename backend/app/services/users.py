@@ -8,7 +8,7 @@ from app.models.user import FacePhotoStatus, User
 from app.schemas.city import CityRead
 from app.schemas.user import MeRead, MeUpdate, PublicUser, RatedUser
 from app.services.media import delete_media, media_url, save_image
-from app.services.rating import DriverStats
+from app.services.rating import DriverStats, driver_stats
 
 
 def to_public(user: User) -> PublicUser:
@@ -29,9 +29,10 @@ def to_rated(user: User, stats: DriverStats) -> RatedUser:
     )
 
 
-def to_me(user: User) -> MeRead:
+def to_me(user: User, stats: DriverStats) -> MeRead:
     return MeRead(
-        **to_public(user).model_dump(),
+        **to_rated(user, stats).model_dump(),
+        cancellations_count=stats.cancellations,
         phone=user.phone,
         city=CityRead.model_validate(user.city) if user.city else None,
         face_photo_status=user.face_photo_status,
@@ -39,6 +40,11 @@ def to_me(user: User) -> MeRead:
         blocked_until=as_utc(user.blocked_until) if user.blocked_until else None,
         created_at=as_utc(user.created_at),
     )
+
+
+async def me_read(db: AsyncSession, user: User) -> MeRead:
+    stats = (await driver_stats(db, [user.id]))[user.id]
+    return to_me(user, stats)
 
 
 async def update_profile(db: AsyncSession, user: User, payload: MeUpdate) -> User:

@@ -1,5 +1,24 @@
+from app.models.booking import (
+    ACTIVE_BOOKING_STATUSES,
+    Booking,
+    BookingExtra,
+    BookingKind,
+    BookingStatus,
+    CancelledBy,
+    Notification,
+    Payment,
+)
 from app.models.car import Car, CarBrand, CarModel, VehicleType
+from app.models.chat import Chat, ChatMessage
 from app.models.city import City
+from app.models.feedback import (
+    Cancellation,
+    Complaint,
+    ComplaintReason,
+    ComplaintStatus,
+    ParticipantRole,
+    Review,
+)
 from app.models.trip import (
     BookingMode,
     ExtraKind,
@@ -14,11 +33,27 @@ from app.models.trip import (
 from app.models.user import AuthCode, FacePhotoStatus, RefreshToken, User
 
 __all__ = [
+    "ACTIVE_BOOKING_STATUSES",
     "AuthCode",
+    "Booking",
+    "BookingExtra",
+    "BookingKind",
     "BookingMode",
+    "BookingStatus",
+    "Cancellation",
+    "CancelledBy",
+    "Complaint",
+    "ComplaintReason",
+    "ComplaintStatus",
+    "ParticipantRole",
+    "Review",
+    "Notification",
+    "Payment",
     "Car",
     "CarBrand",
     "CarModel",
+    "Chat",
+    "ChatMessage",
     "City",
     "ExtraKind",
     "FacePhotoStatus",

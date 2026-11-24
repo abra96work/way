@@ -6,8 +6,9 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 COPY pyproject.toml uv.lock* ./
-RUN uv sync --frozen --no-dev || uv sync --no-dev
+RUN uv sync --frozen --no-dev --no-install-project
 COPY . .
+RUN uv sync --frozen --no-dev
 
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && fastapi run app/main.py --host 0.0.0.0 --port 8000"]

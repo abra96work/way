@@ -187,7 +187,11 @@ async def test_publish_requires_first_name(client: AsyncClient, auth: dict) -> N
 
 @pytest.mark.parametrize(
     ("departure", "code"),
-    [(slot(days=-1), "departure_in_past"), (slot(days=5), "departure_too_far")],
+    [
+        (slot(days=-1), "departure_in_past"),
+        # Requirements: no further than 3 days ahead.
+        (slot(days=4), "departure_too_far"),
+    ],
 )
 async def test_publish_time_window(
     client: AsyncClient, driver: dict, departure: str, code: str
@@ -217,7 +221,12 @@ async def test_daily_limit_allows_one_trip_and_one_back(client: AsyncClient, dri
         json=trip_payload(driver, departure_at=slot(hour=12)),
     )
     assert same_direction.status_code == 409
-    assert same_direction.json()["code"] == "daily_trip_limit"
+    error = same_direction.json()
+    assert error["code"] == "daily_trip_limit"
+    assert error["details"]["published"] == 1
+    assert error["details"]["there"] == {"used": 1, "limit": 1}
+    assert error["details"]["back"] == {"used": 0, "limit": 1}
+    assert error["details"]["date"] == first["departure_at"][:10]
 
     back = await client.post(
         f"/api/v1/trips/{first['id']}/reverse",
@@ -232,6 +241,8 @@ async def test_daily_limit_allows_one_trip_and_one_back(client: AsyncClient, dri
         json={"departure_at": slot(hour=20), "publish": True},
     )
     assert third.status_code == 409
+    assert third.json()["details"]["published"] == 2
+    assert third.json()["details"]["back"] == {"used": 1, "limit": 1}
 
     next_day = await _create(client, driver, departure_at=slot(days=2, hour=8))
     assert next_day["status"] == "published"
@@ -313,8 +324,10 @@ async def test_cancel_and_delete(client: AsyncClient, driver: dict) -> None:
 
     cancelled = await client.post(f"/api/v1/trips/{trip['id']}/cancel", headers=driver["headers"])
     assert cancelled.status_code == 200
-    assert cancelled.json()["status"] == "cancelled"
-    assert cancelled.json()["is_editable"] is False
+    assert cancelled.json()["trip"]["status"] == "cancelled"
+    assert cancelled.json()["trip"]["is_editable"] is False
+    # Nobody was registered: no rules violation.
+    assert cancelled.json()["sanction"]["is_violation"] is False
 
     edit = await client.patch(
         f"/api/v1/trips/{trip['id']}/seats", headers=driver["headers"], json={"seats_total": 2}
@@ -377,3 +390,98 @@ async def test_parcel_sizes_reference(client: AsyncClient) -> None:
 
 def test_slot_helper_is_utc_convertible() -> None:
     assert datetime.fromisoformat(slot()).astimezone(UTC).minute in (0, 30)
+
+
+async def test_arrival_time_is_optional_and_validated(client: AsyncClient, driver: dict) -> None:
+    trip = await _create(client, driver, arrival_at=slot(hour=11, minute=45))
+    assert trip["arrival_at"].endswith(("Z", "+00:00"))
+    assert datetime.fromisoformat(
+        trip["arrival_at"].replace("Z", "+00:00")
+    ) == datetime.fromisoformat(slot(hour=11, minute=45))
+
+    for bad in (slot(hour=8), slot(days=5)):
+        response = await client.post(
+            "/api/v1/trips",
+            headers=driver["headers"],
+            json=trip_payload(driver, departure_at=slot(days=2), arrival_at=bad),
+        )
+        assert response.status_code == 422
+
+    plain = await _create(client, driver, departure_at=slot(days=2))
+    assert plain["arrival_at"] is None
+
+
+async def test_reverse_trip_keeps_duration(client: AsyncClient, driver: dict) -> None:
+    source = await _create(client, driver, arrival_at=slot(hour=11, minute=30))
+
+    back = await client.post(
+        f"/api/v1/trips/{source['id']}/reverse",
+        headers=driver["headers"],
+        json={"departure_at": slot(hour=18)},
+    )
+
+    arrival = datetime.fromisoformat(back.json()["arrival_at"].replace("Z", "+00:00"))
+    assert arrival == datetime.fromisoformat(slot(hour=20, minute=30))
+
+
+async def test_publish_limits_count_day_and_week(client: AsyncClient, driver: dict) -> None:
+    first = await _create(client, driver, departure_at=slot(hour=8))
+    day = datetime.fromisoformat(slot(hour=8)).date().isoformat()
+
+    before = await client.get(f"/api/v1/trips/limits?date={day}", headers=driver["headers"])
+    assert before.status_code == 200, before.text
+    assert before.json()["day"] == {"used": 1, "limit": 2}
+
+    back = await client.post(
+        f"/api/v1/trips/{first['id']}/reverse",
+        headers=driver["headers"],
+        json={"departure_at": slot(hour=18), "publish": True},
+    )
+    assert back.status_code == 201, back.text
+
+    limits = (
+        await client.get(f"/api/v1/trips/limits?date={day}", headers=driver["headers"])
+    ).json()
+    assert limits["day"] == {"used": 2, "limit": 2}
+    assert limits["week"] == {"used": 2, "limit": 10}
+    start = datetime.fromisoformat(limits["week_start"]).date()
+    assert start.weekday() == 0
+    assert limits["week_start"] <= day <= limits["week_end"]
+
+    # Drafts do not count.
+    await _create(client, driver, departure_at=slot(days=2), publish=False)
+    again = (await client.get(f"/api/v1/trips/limits?date={day}", headers=driver["headers"])).json()
+    assert again["day"]["used"] == 2
+
+
+async def test_weekly_limit(
+    client: AsyncClient, driver: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "trip_week_limit", 1)
+    first = await _create(client, driver, departure_at=slot(hour=8))
+
+    back = await client.post(
+        f"/api/v1/trips/{first['id']}/reverse",
+        headers=driver["headers"],
+        json={"departure_at": slot(hour=18), "publish": True},
+    )
+
+    assert back.status_code == 409
+    assert back.json()["code"] == "weekly_trip_limit"
+    assert back.json()["details"] == {"used": 1, "limit": 1}
+
+
+async def test_reverse_trip_with_own_arrival(client: AsyncClient, driver: dict) -> None:
+    first = await _create(client, driver, departure_at=slot(hour=8))
+
+    back = await client.post(
+        f"/api/v1/trips/{first['id']}/reverse",
+        headers=driver["headers"],
+        json={"departure_at": slot(hour=18), "arrival_at": slot(hour=21), "publish": True},
+    )
+
+    assert back.status_code == 201, back.text
+    arrival = datetime.fromisoformat(back.json()["arrival_at"])
+    assert arrival == datetime.fromisoformat(slot(hour=21))

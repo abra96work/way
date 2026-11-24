@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 class WelcomePage extends StatelessWidget {
   const WelcomePage({super.key, this.onContinue});
 
-  static const _designSize = Size(375, 812);
   static const _primary = Color(0xFF1EB74D);
   static const _textPrimary = Color(0xFF0C0C0C);
 
@@ -23,106 +22,74 @@ class WelcomePage extends StatelessWidget {
       ),
       child: Scaffold(
         backgroundColor: Colors.white,
-        body: ColoredBox(
-          color: Colors.white,
-          child: Center(
-            child: FittedBox(
-              fit: BoxFit.contain,
-              child: SizedBox.fromSize(
-                size: _designSize,
-                child: Stack(
-                  clipBehavior: Clip.none,
+        body: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final compact = constraints.maxHeight < 700;
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+                child: Column(
                   children: [
-                    const Positioned(
-                      left: 16,
-                      top: 79,
-                      width: 343,
-                      child: Text.rich(
-                        TextSpan(
-                          style: TextStyle(
-                            color: _textPrimary,
-                            fontSize: 24,
-                            fontWeight: FontWeight.w700,
-                            height: 1.25,
-                          ),
-                          children: [
-                            TextSpan(text: 'Добро пожаловать\nв '),
-                            TextSpan(
-                              text: 'Путь',
-                              style: TextStyle(color: _primary),
-                            ),
-                          ],
+                    const Text.rich(
+                      TextSpan(
+                        style: TextStyle(
+                          color: _textPrimary,
+                          fontSize: 24,
+                          fontWeight: FontWeight.w700,
+                          height: 1.25,
                         ),
-                        textAlign: TextAlign.center,
+                        children: [
+                          TextSpan(text: 'Добро пожаловать\nв '),
+                          TextSpan(
+                            text: 'Путь',
+                            style: TextStyle(color: _primary),
+                          ),
+                        ],
                       ),
+                      textAlign: TextAlign.center,
                     ),
-                    Positioned(
-                      left: -2,
-                      top: 164,
-                      width: 378,
-                      height: 290,
+                    SizedBox(height: compact ? 8 : 16),
+                    Expanded(
+                      flex: 5,
                       child: Image.asset(
                         'assets/images/onboarding_location.png',
                         key: const ValueKey('welcome-location-image'),
-                        fit: BoxFit.cover,
+                        width: double.infinity,
+                        fit: BoxFit.contain,
                         semanticLabel: 'Метка маршрута на карте',
                       ),
                     ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 471,
-                      bottom: 0,
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.vertical(
-                            top: Radius.circular(24),
-                          ),
-                        ),
-                        child: Stack(
-                          children: [
-                            const Positioned(
-                              left: 16,
-                              top: 32,
-                              width: 343,
-                              child: Text(
-                                'Находите нужное направление, создавайте поездки\n'
-                                'или бронируйте места,\n'
-                                'экономьте время и деньги',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: _textPrimary,
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.25,
-                                ),
-                              ),
-                            ),
-                            const Positioned(
-                              left: 16,
-                              top: 191,
-                              child: _PageIndicator(),
-                            ),
-                            Positioned(
-                              left: 16,
-                              right: 16,
-                              bottom: 59,
-                              height: 42,
-                              child: _ContinueButton(
-                                onPressed:
-                                    onContinue ??
-                                    () => _showPendingFlow(context),
-                              ),
-                            ),
-                          ],
-                        ),
+                    SizedBox(height: compact ? 8 : 16),
+                    const Text(
+                      'Находите нужное направление, создавайте поездки\n'
+                      'или бронируйте места,\n'
+                      'экономьте время и деньги',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: _textPrimary,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                      ),
+                    ),
+                    const Spacer(),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: _PageIndicator(),
+                    ),
+                    SizedBox(height: compact ? 12 : 24),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: _ContinueButton(
+                        onPressed:
+                            onContinue ?? () => _showPendingFlow(context),
                       ),
                     ),
                   ],
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ),
       ),
@@ -144,6 +111,7 @@ class _PageIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Container(
           width: 40,
@@ -195,7 +163,7 @@ class _ContinueButton extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text('Продолжить'),
-          Icon(Icons.chevron_right_rounded, size: 14),
+          Icon(Icons.chevron_right_rounded, size: 18),
         ],
       ),
     );

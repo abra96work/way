@@ -1,9 +1,9 @@
 #cloud-config
-# Первичная настройка VPS для «Путь» (Ubuntu 22.04/24.04).
+# Первичная настройка VPS для «Путь» (Ubuntu 22.04–26.04).
 # Вставить в поле Cloud-init при создании сервера. Выполняется один раз при первой загрузке.
 #
 # Что делает:
-#  - пользователь deploy с ключом проекта (id_ed25519_put), sudo без пароля, доступ к Docker;
+#  - пользователь deploy с ключом проекта (id_ed25519_put_deploy, без пароля), sudo без пароля, доступ к Docker;
 #  - вход по паролю по SSH отключён, только ключи (root по ключу остаётся как запасной вход);
 #  - Docker + Compose, git, автообновления безопасности, fail2ban;
 #  - firewall: открыты только 22, 80, 443;
@@ -30,7 +30,7 @@ users:
     sudo: "ALL=(ALL) NOPASSWD:ALL"
     lock_passwd: true
     ssh_authorized_keys:
-      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO8yt3iljqVb0bVLH701mkxmWAPGuihoOXIhDk9FWZ9L put-server
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGeJHlCzMXb1efWpkiNYb+Pm9gLjRwZe4lwuWmM4VIGJ put-server-deploy
 
 ssh_pwauth: false
 disable_root: false

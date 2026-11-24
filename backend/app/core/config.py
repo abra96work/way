@@ -31,15 +31,21 @@ class Settings(BaseSettings):
     # Business rules.
     local_timezone: str = "Asia/Yekaterinburg"  # "a day" for publishing limits
     commission_percent: Decimal = Decimal("10")
-    trip_publish_days_ahead: int = 3
+    trip_publish_days_ahead: int = 3  # the requirements sticker in Figma: "не дальше 3 дней"
     trip_max_stops: int = 10
+    # Published trips per calendar week (Mon–Sun, local), as "На неделе 3 / 10" in Figma.
+    trip_week_limit: int = 10
     # Arrival times are not collected, so a trip counts as finished this long after departure.
     trip_complete_after_hours: int = 6
     # Drivers need an admin-approved face photo. Off until the admin panel exists (stage 8).
     require_driver_face_approval: bool = False
+    # The test build has no UI for leaving reviews; the API exists behind this flag.
+    reviews_enabled: bool = False
     cancellations_to_block: int = 2
     cancellation_window_days: int = 30
     block_duration_days: int = 30
+    # Payments are a mock; the refund term is what the user is told on cancelling.
+    refund_period_days: int = 10
 
     model_config = SettingsConfigDict(
         env_file=".env",

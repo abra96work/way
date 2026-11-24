@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -5,10 +6,13 @@ from fastapi import APIRouter, Query, status
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.errors import ErrorResponse
+from app.schemas.booking import BookingRead
+from app.schemas.feedback import SanctionInfo, TripCancelResult
 from app.schemas.search import SegmentQuote
 from app.schemas.trip import (
     PARCEL_LIMITS,
     ParcelSizeRead,
+    PublishLimits,
     ReverseTripCreate,
     SeatsUpdate,
     TripCreate,
@@ -16,6 +20,7 @@ from app.schemas.trip import (
     TripRead,
     TripWrite,
 )
+from app.services import bookings as booking_service
 from app.services import trips as trip_service
 
 router = APIRouter(prefix="/trips", tags=["trips"])
@@ -57,7 +62,22 @@ async def my_trips(
 ) -> list[TripRead]:
     """«Мои поездки» водителя. `status`: active | completed | draft | cancelled."""
     trips = await trip_service.list_driver_trips(db, user, status_filter)
-    return [await trip_service.to_read(db, trip) for trip in trips]
+    result = []
+    for trip in trips:
+        read = await trip_service.to_read(db, trip)
+        read.requests = await trip_service.requests_summary(db, trip)
+        result.append(read)
+    return result
+
+
+@router.get("/limits", response_model=PublishLimits, responses=_errors)
+async def publish_limits(
+    user: CurrentUser,
+    db: DbSession,
+    day: Annotated[date | None, Query(alias="date")] = None,
+) -> PublishLimits:
+    """Лимиты публикации на день отправления (`date`, по умолчанию сегодня) и его неделю."""
+    return await trip_service.publish_limits(db, user, day or trip_service.local_today())
 
 
 @router.get("/{trip_id}", response_model=TripRead, responses=_errors)
@@ -79,6 +99,15 @@ async def segment_price(
     return await trip_service.quote(db, trip, from_position, to_position)
 
 
+@router.get("/{trip_id}/bookings", response_model=list[BookingRead], responses=_errors)
+async def trip_bookings(
+    trip_id: UUID, user: CurrentUser, db: DbSession, active_only: bool = False
+) -> list[BookingRead]:
+    """Заявки и пассажиры поездки — только для её водителя."""
+    bookings = await booking_service.list_trip_bookings(db, user, trip_id, active_only=active_only)
+    return await booking_service.read_many(db, bookings, user)
+
+
 @router.put("/{trip_id}", response_model=TripRead, responses=_errors)
 async def replace_trip(
     trip_id: UUID, payload: TripWrite, user: CurrentUser, db: DbSession
@@ -97,16 +126,39 @@ async def update_seats(
     return await trip_service.to_read(db, trip)
 
 
+@router.post("/{trip_id}/close-booking", response_model=TripRead, responses=_errors)
+async def close_booking(trip_id: UUID, user: CurrentUser, db: DbSession) -> TripRead:
+    """«Завершить приём пассажиров»: поездка пропадает из поиска, новых броней нет.
+    Уже записанные пассажиры остаются."""
+    trip = await trip_service.set_accepting_bookings(db, user, trip_id, accepting=False)
+    return await trip_service.to_read(db, trip)
+
+
+@router.post("/{trip_id}/open-booking", response_model=TripRead, responses=_errors)
+async def open_booking(trip_id: UUID, user: CurrentUser, db: DbSession) -> TripRead:
+    """Снова принимать пассажиров."""
+    trip = await trip_service.set_accepting_bookings(db, user, trip_id, accepting=True)
+    return await trip_service.to_read(db, trip)
+
+
 @router.post("/{trip_id}/publish", response_model=TripRead, responses=_errors)
 async def publish_trip(trip_id: UUID, user: CurrentUser, db: DbSession) -> TripRead:
     trip = await trip_service.publish_trip(db, user, trip_id)
     return await trip_service.to_read(db, trip)
 
 
-@router.post("/{trip_id}/cancel", response_model=TripRead, responses=_errors)
-async def cancel_trip(trip_id: UUID, user: CurrentUser, db: DbSession) -> TripRead:
-    trip = await trip_service.cancel_trip(db, user, trip_id)
-    return await trip_service.to_read(db, trip)
+@router.get("/{trip_id}/cancel-preview", response_model=SanctionInfo, responses=_errors)
+async def cancel_preview(trip_id: UUID, user: CurrentUser, db: DbSession) -> SanctionInfo:
+    """Перед отменой: нарушает ли она правила сообщества и приведёт ли к блокировке."""
+    return await trip_service.cancel_preview(db, user, trip_id)
+
+
+@router.post("/{trip_id}/cancel", response_model=TripCancelResult, responses=_errors)
+async def cancel_trip(trip_id: UUID, user: CurrentUser, db: DbSession) -> TripCancelResult:
+    """Отменить поездку и все её брони. Если пассажиры уже зарегистрированы —
+    предупреждение и учёт в блокировке (2 отмены за 30 дней → блок на 30 дней)."""
+    trip, sanction = await trip_service.cancel_trip(db, user, trip_id)
+    return TripCancelResult(trip=await trip_service.to_read(db, trip), sanction=sanction)
 
 
 @router.delete("/{trip_id}", status_code=status.HTTP_204_NO_CONTENT, responses=_errors)

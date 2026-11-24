@@ -38,7 +38,7 @@
 - Режим бронирования: **стандартный** (водитель подтверждает/отклоняет заявку, затем
   пассажир оплачивает) или **быстрый** (сразу оплата, без подтверждения).
 - Сохранить черновик, редактировать, создать **обратную** поездку (маршрут зеркально, новое время).
-- Лимиты публикации: 1 поездка в сутки + 1 в обратном направлении; публикация не более чем на 3 дня вперёд.
+- Лимиты публикации: 1 поездка в сутки + 1 в обратном направлении; публикация не более чем на 3 дня вперёд (по стикеру с требованиями; не больше 10 поездок за календарную неделю — число из макета).
 
 **Пассажир: поиск**
 - Список поездок; вкладки «Автомобили / Автобусы».
@@ -102,18 +102,19 @@ app/
 | `trip_segment_prices` | trip_id, from_position, to_position, price — соседние пары обязательны (при 3+ остановках), другие пары — необязательные переопределения |
 | `trip_extras` | trip_id, kind (child_seat/pets/luggage), price |
 | `trip_parcel_prices` | trip_id, size (S/M/L), price; габариты/вес — константы (`GET /trips/parcel-sizes`); пусто — посылки не принимаются |
-| `bookings` | id, trip_id, passenger_id, from_stop_id, to_stop_id, kind (seat/parcel), seats, parcel_size, status, driver_price, commission, total, created_at, cancelled_at, cancelled_by |
+| `bookings` | id, trip_id, passenger_id, kind (seat/parcel), status, from_position, to_position, seats (0 у посылки), parcel_size, driver_price, commission, confirmed_at, paid_at, cancelled_at, cancelled_by (passenger/driver), created_at |
 | `booking_extras` | booking_id, kind, price |
 | `payments` | id, booking_id, amount (комиссия), status (paid), provider='mock', created_at |
-| `reviews` | id, trip_id, author_id, target_id, rating 1–5, text, created_at (unique: trip+author+target) |
-| `complaints` | id, author_id, target_id, trip_id, reason, text, status, created_at |
-| `cancellations` | id, user_id, booking_id/trip_id, role, created_at — основа для санкций и рейтинга |
-| `notifications` | id, user_id, type, payload JSON, read_at, created_at |
-| `chat_messages` *(этап 7)* | id, booking_id, sender_id, text, created_at |
+| `reviews` | id, trip_id, booking_id, author_id, target_id, target_role, rating 1–5 (check), text, is_hidden (модерация), created_at, updated_at; unique trip+author+target. По ТЗ UI нет — API за флагом `PUT_REVIEWS_ENABLED` |
+| `complaints` | id, author_id, target_id, trip_id, reason (no_show/late/rude/unsafe_driving/vehicle_mismatch/fraud/other), text, status (new/in_review/resolved/rejected), resolved_at, created_at |
+| `cancellations` | id, user_id, role, trip_id, booking_id, blocked_until, created_at — только отмены-нарушения (после регистрации пассажира); основа санкций и рейтинга |
+| `notifications` | id, user_id, type, title, body, payload JSON (trip_id, booking_id), read_at, created_at |
+| `chats` | id, trip_id, driver_id, passenger_id (unique trip+passenger), last_message_at, driver_read_id, passenger_read_id |
+| `chat_messages` | id (растущий, курсор и отметка прочтения), chat_id, sender_id, text ≤ 2000, created_at |
 
 Статусы брони:
-`pending` (ждёт водителя) → `awaiting_payment` → `paid` → `completed`;
-боковые: `rejected`, `cancelled_by_passenger`, `cancelled_by_driver`.
+`pending` (ждёт водителя) → `awaiting_payment` → `paid` → `completed` (вычисляется);
+боковые: `rejected`, `cancelled` + `cancelled_by` (passenger/driver). `pending` уже держит места.
 Быстрое бронирование: сразу `awaiting_payment`.
 
 ## 5. API v1 (черновик)
@@ -138,7 +139,8 @@ GET   /trips/mine?status=active|completed|draft|cancelled
 GET   /trips/{id}               детали; цены как driver_price / commission / passenger_price
 PUT   /trips/{id}               заменить целиком; только без активных броней
 PATCH /trips/{id}/seats         число мест — можно и после броней
-POST  /trips/{id}/publish   POST /trips/{id}/cancel   DELETE /trips/{id}
+POST  /trips/{id}/publish   DELETE /trips/{id}
+GET   /trips/{id}/cancel-preview   POST /trips/{id}/cancel → {trip, sanction}
 POST  /trips/{id}/reverse       {departure_at, publish} → обратная поездка
 GET   /trips/{id}/bookings      заявки для водителя
 
@@ -148,15 +150,20 @@ GET   /search/trips?from_city_id=&to_city_id=&from_query=&to_query=&lat=&lng=&ra
          driver{rating, reviews_count}, is_registration_open], total}
 GET   /trips/{id}/price?from_position=&to_position=   цена и свободные места отрезка
 
-POST  /bookings                 {trip_id, from_stop_id, to_stop_id, kind, seats, extras[], parcel_size}
+POST  /bookings/quote           расчёт до бронирования
+POST  /bookings                 {trip_id, from_position, to_position, kind, seats, extras[], parcel_size}
                                 → цена с разбивкой (driver_price, commission, total)
 GET   /bookings/mine?status=
 POST  /bookings/{id}/confirm | /reject      (водитель)
 POST  /bookings/{id}/pay        mock → сразу paid
-POST  /bookings/{id}/cancel     предупреждение/санкции в ответе
+GET   /bookings/{id}/cancel-preview   POST /bookings/{id}/cancel → {booking, sanction}
 
-GET   /notifications   POST /notifications/{id}/read
-POST  /complaints
+POST  /chats {booking_id}   GET /chats   GET /chats/unread-count   GET /chats/{id}
+GET   /chats/{id}/messages?after_id=&before_id=&limit=   POST /chats/{id}/messages   POST /chats/{id}/read
+WS    /chats/ws?token=   live: message / read / pong; клиент может слать message / read / ping
+GET   /notifications?unread_only=   GET /notifications/unread-count
+POST  /notifications/{id}/read   POST /notifications/read-all
+POST  /complaints   POST /reviews (выключено флагом)
 ```
 
 ## 6. Ключевая бизнес-логика (сервисы + юнит-тесты)
@@ -185,7 +192,7 @@ POST  /complaints
 
 ## 7. Этапы
 
-Статус: этапы 0–4 выполнены (2026-11-23).
+Статус: этапы 0–7 выполнены (2026-11-23).
 
 | # | Этап | Результат | Оценка |
 |---|---|---|---|
@@ -196,8 +203,8 @@ POST  /complaints
 | 4 | Поиск | фильтры город/текст/гео/дата/тип, ранжирование, очередь машин, детали поездки с ценами и доступностью | 1 день |
 | 5 | Бронирование и оплата | расчёт цены, места по отрезкам, ручной/быстрый режим, confirm/reject, mock-оплата, мои брони/поездки, уведомления | 1,5 дня |
 | 6 | Отмены, рейтинг, отзывы, жалобы | санкции 2/30, рейтинг, таблицы reviews/complaints, «5 звёзд, нет отзывов» | 1 день |
-| 7 | Чат (если в объёме) | сообщения по брони, опрос или WebSocket | 0,5–1 день |
-| 8 | Админка (минимум) | sqladmin: пользователи, блокировки, проверка фото лица, жалобы | 0,5 дня |
+| 7 | Чат | водитель ↔ пассажир по брони, история в БД, доставка по WebSocket, отметки прочтения | 0,5–1 день |
+| 8 | Админка — **не делаем** | Заказчик подтвердил, что не нужна (2026-11-23). Блокировки видны в БД (`users.blocked_until`, `cancellations`), одобрение фото лица выключено флагом `PUT_REQUIRE_DRIVER_FACE_APPROVAL` | — |
 | 9 | Деплой и сдача | Docker-образ, Postgres, HTTPS-хостинг вне РФ, seed демо-водителей/поездок, README, проверка APK против прода | 1 день |
 
 Итого ≈ 9–10 рабочих дней. Порядок совпадает с экранами клиента, так что мобильная
