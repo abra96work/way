@@ -13,11 +13,10 @@ class RoleSelectionPage extends StatefulWidget {
 }
 
 class _RoleSelectionPageState extends State<RoleSelectionPage> {
-  static const _designSize = Size(375, 812);
   static const _primary = Color(0xFF1EB74D);
   static const _textColor = Color(0xFF0C0C0C);
 
-  TripRole _selectedRole = TripRole.driver;
+  TripRole? _selectedRole;
 
   @override
   Widget build(BuildContext context) {
@@ -32,187 +31,181 @@ class _RoleSelectionPageState extends State<RoleSelectionPage> {
       ),
       child: Scaffold(
         backgroundColor: Colors.white,
-        body: ColoredBox(
-          color: Colors.white,
-          child: Center(
-            child: FittedBox(
-              fit: BoxFit.contain,
-              child: SizedBox.fromSize(
-                size: _designSize,
-                child: Stack(
-                  children: [
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      height: 222,
-                      child: Container(
-                        decoration: const BoxDecoration(
-                          color: _primary,
-                          borderRadius: BorderRadius.vertical(
-                            bottom: Radius.circular(24),
-                          ),
+        body: SafeArea(
+          bottom: false,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final heroHeight = (constraints.maxHeight * 0.48)
+                  .clamp(300.0, 390.0)
+                  .toDouble();
+              return Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    height: heroHeight,
+                    child: const _RoleHero(),
+                  ),
+                  Expanded(
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(16, 24, 16, 20),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFEDEDED),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(24),
                         ),
                       ),
-                    ),
-                    Positioned(
-                      left: 132,
-                      top: 60,
-                      width: 50,
-                      height: 50,
-                      child: Image.asset(
-                        'assets/images/logo_marker.png',
-                        key: const ValueKey('role-header-logo'),
-                        fit: BoxFit.cover,
-                        semanticLabel: 'Логотип приложения Путь',
-                      ),
-                    ),
-                    const Positioned(
-                      left: 192,
-                      top: 70,
-                      child: Text(
-                        'Путь',
-                        style: TextStyle(
-                          color: Color(0xFFF3F3F3),
-                          fontSize: 24,
-                          fontWeight: FontWeight.w700,
-                          height: 1.25,
-                        ),
-                      ),
-                    ),
-                    Positioned(
-                      left: 0,
-                      top: 145,
-                      width: 375,
-                      height: 273,
-                      child: Image.asset(
-                        'assets/images/onboarding_car.png',
-                        key: const ValueKey('role-car-image'),
-                        fit: BoxFit.cover,
-                        semanticLabel: 'Автомобиль для совместной поездки',
-                      ),
-                    ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 455,
-                      bottom: 0,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEDEDED),
-                          border: Border.all(
-                            color: const Color(0xFFF6F6F7),
-                            width: 3,
-                          ),
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(24),
-                          ),
-                        ),
-                        child: Stack(
-                          children: [
-                            const Positioned(
-                              left: 16,
-                              top: 32,
-                              width: 343,
-                              child: Text.rich(
+                      child: Column(
+                        children: [
+                          const Text.rich(
+                            TextSpan(
+                              style: TextStyle(
+                                color: _textColor,
+                                fontSize: 28,
+                                fontWeight: FontWeight.w700,
+                                height: 1.21,
+                              ),
+                              children: [
+                                TextSpan(text: 'Добро пожаловать\nв '),
                                 TextSpan(
-                                  style: TextStyle(
-                                    color: _textColor,
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.w700,
-                                    height: 1.21,
-                                  ),
-                                  children: [
-                                    TextSpan(text: 'Добро пожаловать\nв '),
-                                    TextSpan(
-                                      text: 'Путь',
-                                      style: TextStyle(color: _primary),
-                                    ),
-                                  ],
+                                  text: 'Путь',
+                                  style: TextStyle(color: _primary),
                                 ),
-                                textAlign: TextAlign.center,
-                              ),
+                              ],
                             ),
-                            const Positioned(
-                              left: 16,
-                              top: 108,
-                              width: 343,
-                              child: Text(
-                                'От чьего лица вы хотите\nсоздать поездку?',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  color: _textColor,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w500,
-                                  height: 1.2,
-                                ),
-                              ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 10),
+                          const Text(
+                            'От чьего лица вы хотите\nсоздать поездку?',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: _textColor,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w500,
+                              height: 1.2,
                             ),
-                            Positioned(
-                              left: 13,
-                              top: 188,
-                              child: Row(
-                                children: [
-                                  _RoleCard(
-                                    semanticsKey: const ValueKey('driver-role'),
-                                    label: 'Водитель',
-                                    imagePath:
-                                        'assets/images/steering_wheel.png',
-                                    imageWidth: 74,
-                                    imageHeight: 63,
-                                    selected: _selectedRole == TripRole.driver,
-                                    onTap: () => _selectRole(TripRole.driver),
-                                  ),
-                                  const SizedBox(width: 9),
-                                  _RoleCard(
-                                    semanticsKey: const ValueKey(
-                                      'passenger-role',
-                                    ),
-                                    label: 'Пассажир',
-                                    imagePath: 'assets/images/driver_seat.png',
-                                    imageWidth: 80,
-                                    imageHeight: 77,
-                                    selected:
-                                        _selectedRole == TripRole.passenger,
-                                    onTap: () =>
-                                        _selectRole(TripRole.passenger),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Positioned(
-                              left: 118,
-                              bottom: 8,
-                              width: 139,
-                              height: 5,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: _textColor,
-                                  borderRadius: BorderRadius.all(
-                                    Radius.circular(100),
-                                  ),
+                          ),
+                          const Spacer(),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _RoleCard(
+                                  semanticsKey: const ValueKey('driver-role'),
+                                  label: 'Водитель',
+                                  imagePath: 'assets/images/steering_wheel.png',
+                                  imageWidth: 74,
+                                  imageHeight: 63,
+                                  selected: _selectedRole == TripRole.driver,
+                                  onTap: () => _selectRole(TripRole.driver),
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _RoleCard(
+                                  semanticsKey: const ValueKey(
+                                    'passenger-role',
+                                  ),
+                                  label: 'Пассажир',
+                                  imagePath: 'assets/images/driver_seat.png',
+                                  imageWidth: 80,
+                                  imageHeight: 77,
+                                  selected: _selectedRole == TripRole.passenger,
+                                  onTap: () => _selectRole(TripRole.passenger),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-            ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
     );
   }
 
-  void _selectRole(TripRole role) {
+  Future<void> _selectRole(TripRole role) async {
     if (_selectedRole != role) {
       setState(() => _selectedRole = role);
     }
-    widget.onRoleSelected?.call(role);
+    if (widget.onRoleSelected == null) return;
+
+    // Оставляем выбранное состояние видимым перед сменой экрана.
+    await Future<void>.delayed(const Duration(milliseconds: 180));
+    if (mounted) widget.onRoleSelected?.call(role);
+  }
+}
+
+class _RoleHero extends StatelessWidget {
+  const _RoleHero();
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Align(
+          alignment: Alignment.topCenter,
+          child: FractionallySizedBox(
+            widthFactor: 1,
+            heightFactor: 0.61,
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                color: _RoleSelectionPageState._primary,
+                borderRadius: BorderRadius.vertical(
+                  bottom: Radius.circular(24),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 26,
+          left: 0,
+          right: 0,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Image.asset(
+                'assets/images/logo_marker.png',
+                key: const ValueKey('role-header-logo'),
+                width: 42,
+                height: 42,
+                fit: BoxFit.contain,
+                semanticLabel: 'Логотип приложения Путь',
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Путь',
+                style: TextStyle(
+                  color: Color(0xFFF3F3F3),
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 105,
+          bottom: 0,
+          child: Image.asset(
+            'assets/images/onboarding_car.png',
+            key: const ValueKey('role-car-image'),
+            fit: BoxFit.contain,
+            alignment: Alignment.bottomCenter,
+            semanticLabel: 'Автомобиль для совместной поездки',
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -247,15 +240,12 @@ class _RoleCard extends StatelessWidget {
       selected: selected,
       label: label,
       child: Material(
-        color: selected
-            ? _RoleSelectionPageState._primary
-            : const Color(0xFFF6F6F6),
+        color: selected ? _RoleSelectionPageState._primary : Colors.white,
         borderRadius: BorderRadius.circular(12),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
           child: SizedBox(
-            width: 167,
             height: 132,
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,

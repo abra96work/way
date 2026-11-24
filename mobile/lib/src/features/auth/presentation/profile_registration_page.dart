@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,6 +22,7 @@ typedef SaveProfile = Future<void> Function(
   String name,
   SelectedProfilePhoto photo,
 );
+typedef CompleteProfile = FutureOr<void> Function();
 
 class ProfileRegistrationPage extends StatefulWidget {
   const ProfileRegistrationPage({
@@ -30,7 +33,7 @@ class ProfileRegistrationPage extends StatefulWidget {
   });
 
   final SaveProfile onSave;
-  final VoidCallback? onCompleted;
+  final CompleteProfile? onCompleted;
   final PickProfilePhoto? pickPhoto;
 
   @override
@@ -265,7 +268,9 @@ class _ProfileRegistrationPageState extends State<ProfileRegistrationPage> {
     try {
       await widget.onSave(_nameController.text.trim(), photo);
       if (!mounted) return;
-      widget.onCompleted?.call();
+      final onCompleted = widget.onCompleted;
+      if (onCompleted != null) await onCompleted();
+      if (mounted) setState(() => _isSubmitting = false);
     } on DioException catch (error) {
       if (!mounted) return;
       final data = error.response?.data;

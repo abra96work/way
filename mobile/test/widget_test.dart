@@ -110,6 +110,30 @@ void main() {
     expect(find.text('Код для входа отправлен'), findsOneWidget);
   });
 
+  testWidgets('phone field can be cleared after an invalid number', (
+    tester,
+  ) async {
+    _setReferenceViewport(tester);
+    await tester.pumpWidget(
+      MaterialApp(home: PhoneLoginPage(onRequestCode: (_) async {})),
+    );
+    final field = find.byKey(const ValueKey('phone-input'));
+
+    await tester.enterText(field, '77');
+    await tester.pump();
+    expect(tester.widget<TextField>(field).controller?.text, '+7 7');
+
+    await tester.enterText(field, '+7 ');
+    await tester.pump();
+    expect(tester.widget<TextField>(field).controller?.text, isEmpty);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('phone-request-code')))
+          .onPressed,
+      isNull,
+    );
+  });
+
   testWidgets('terms link opens legal document', (tester) async {
     _setReferenceViewport(tester);
 
@@ -260,6 +284,35 @@ void main() {
     );
   });
 
+  testWidgets('existing account shows a registration warning', (tester) async {
+    _setReferenceViewport(tester);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SmsCodePage(
+          phone: '+79001234567',
+          onVerify: (_, _) async => throw const SmsVerificationException(
+            'Аккаунт с таким телефоном уже существует',
+          ),
+          onResend: (_) async {},
+        ),
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('sms-code-input')),
+      '111111',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('sms-login-button')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.text('Аккаунт с таким телефоном уже существует'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('sms-invalid-code')), findsOneWidget);
+  });
+
   testWidgets('sms code can be requested again after timeout', (tester) async {
     _setReferenceViewport(tester);
     var resendCount = 0;
@@ -368,6 +421,46 @@ void main() {
     expect(completed, isTrue);
   });
 
+  testWidgets('profile completion failure leaves loading state', (
+    tester,
+  ) async {
+    _setReferenceViewport(tester);
+    final photo = SelectedProfilePhoto(
+      bytes: _onePixelPng(),
+      fileName: 'avatar.png',
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ProfileRegistrationPage(
+          pickPhoto: (_) async => photo,
+          onSave: (_, _) async {},
+          onCompleted: () async => throw StateError('city save failed'),
+        ),
+      ),
+    );
+    await tester.tap(find.byKey(const ValueKey('profile-photo')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('profile-photo-gallery')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('profile-name-input')),
+      'Анастасия',
+    );
+    await tester.tap(find.byKey(const ValueKey('profile-continue')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.byKey(const ValueKey('profile-loading')), findsNothing);
+    expect(
+      tester
+          .widget<TextButton>(find.byKey(const ValueKey('profile-continue')))
+          .onPressed,
+      isNotNull,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('continue action is wired', (tester) async {
     _setReferenceViewport(tester);
 
@@ -451,7 +544,14 @@ void main() {
           .widget<Semantics>(find.byKey(const ValueKey('driver-role')))
           .properties
           .selected,
-      isTrue,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<Semantics>(find.byKey(const ValueKey('passenger-role')))
+          .properties
+          .selected,
+      isFalse,
     );
     await tester.tap(find.byKey(const ValueKey('passenger-role')));
     await tester.pump();
@@ -462,6 +562,36 @@ void main() {
           .selected,
       isTrue,
     );
+  });
+
+  testWidgets('onboarding fits a narrow tall Android viewport', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    for (final page in <Widget>[
+      const OnboardingPage(),
+      const WelcomePage(),
+      const RegistrationIntroPage(),
+      const RoleSelectionPage(),
+      const CitySelectionPage(),
+    ]) {
+      await tester.pumpWidget(MaterialApp(home: page));
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    }
+
+    await tester.pumpWidget(const MaterialApp(home: WelcomePage()));
+    final button = tester.getRect(
+      find.byKey(const ValueKey('welcome-continue')),
+    );
+    expect(button, const Rect.fromLTWH(16, 732, 328, 48));
+
+    await tester.pumpWidget(const MaterialApp(home: CitySelectionPage()));
+    final cityList = tester.getRect(find.byKey(const ValueKey('city-list')));
+    expect(cityList.left, 0);
+    expect(cityList.right, 360);
   });
 
   testWidgets('role selection opens city selection', (tester) async {
@@ -479,9 +609,24 @@ void main() {
 
     expect(find.byType(CitySelectionPage), findsOneWidget);
     expect(find.text('Выберите ваш город'), findsOneWidget);
-    expect(find.text('Абакан'), findsOneWidget);
-    expect(find.text('Владивосток'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('city selection renders cities returned by API', (tester) async {
+    _setReferenceViewport(tester);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CitySelectionPage(
+          loadCities: () async => ['Екатеринбург', 'Берёзовский'],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Екатеринбург'), findsOneWidget);
+    expect(find.text('Берёзовский'), findsOneWidget);
+    expect(find.text('Москва'), findsNothing);
   });
 
   testWidgets('city search filters the list', (tester) async {
@@ -552,6 +697,7 @@ void main() {
     expect(find.text('Здесь ещё нет заказов'), findsOneWidget);
     expect(find.text('Автомобили'), findsOneWidget);
     expect(find.text('Автобусы'), findsOneWidget);
+    expect(find.byKey(const ValueKey('passenger-create')), findsNothing);
   });
 
   testWidgets('passenger trip list filters vehicles and opens a trip', (

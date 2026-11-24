@@ -339,7 +339,7 @@ class _RouteCard extends StatelessWidget {
   }
 }
 
-/// Inline address input with city suggestions after the last comma.
+/// Inline address input with city suggestions for a city or full address.
 class _StopField extends StatefulWidget {
   const _StopField({
     super.key,
@@ -406,10 +406,6 @@ class _StopFieldState extends State<_StopField> {
               foldName(b.name).startsWith(fragment) ? 0 : 1,
             ),
           );
-    // Nothing to suggest once the typed fragment already is a city.
-    if (matches.length == 1 && foldName(matches.first.name) == fragment) {
-      return const [];
-    }
     return matches.take(5);
   }
 
@@ -450,9 +446,7 @@ class _StopFieldState extends State<_StopField> {
           filled: false,
           isDense: true,
           contentPadding: const EdgeInsets.fromLTRB(12, 10, 0, 8),
-          errorText: missingCity
-              ? 'Добавьте город из списка через запятую'
-              : null,
+          errorText: missingCity ? 'Выберите город из списка' : null,
           errorStyle: const TextStyle(color: _errorColor, fontSize: 12),
           border: const UnderlineInputBorder(
             borderSide: BorderSide(color: DriverColors.divider),

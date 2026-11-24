@@ -7,6 +7,12 @@ import 'package:flutter/services.dart';
 typedef VerifySmsCode = Future<void> Function(String phone, String code);
 typedef ResendSmsCode = Future<void> Function(String phone);
 
+class SmsVerificationException implements Exception {
+  const SmsVerificationException(this.message);
+
+  final String message;
+}
+
 class SmsCodePage extends StatefulWidget {
   const SmsCodePage({
     super.key,
@@ -320,6 +326,12 @@ class _SmsCodePageState extends State<SmsCodePage> {
       await widget.onVerify(widget.phone, _codeController.text);
       if (!mounted) return;
       widget.onVerified?.call();
+    } on SmsVerificationException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _hasInvalidCode = true;
+        _verificationError = error.message;
+      });
     } on DioException catch (error) {
       if (!mounted) return;
       setState(() {

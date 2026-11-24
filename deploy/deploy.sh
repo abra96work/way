@@ -3,7 +3,7 @@
 # Код передаётся архивом (git archive), на сервере пересобирается и перезапускается.
 set -euo pipefail
 HOST="${1:?usage: deploy.sh <ip>}"
-KEY="${PUT_SSH_KEY:-$HOME/.ssh/id_ed25519_put}"
+KEY="${PUT_SSH_KEY:-$HOME/.ssh/id_ed25519_put_deploy}"
 SSH=(ssh -i "$KEY" -o StrictHostKeyChecking=accept-new "deploy@$HOST")
 cd "$(git rev-parse --show-toplevel)"
 echo "Выкладываю $(git rev-parse --short HEAD) на $HOST"

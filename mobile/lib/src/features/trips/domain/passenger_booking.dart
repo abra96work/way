@@ -118,7 +118,8 @@ class PassengerBooking {
       driverRating: (driver['rating'] as num?)?.toDouble() ?? 5,
       driverCompletedTrips: (driver['completed_trips'] as num?)?.toInt() ?? 0,
       driverAvatarUrl: driver['avatar_url'] as String?,
-      carName: '${car['brand'] ?? ''} ${car['model'] ?? ''}'.trim(),
+      carName: '${_catalogName(car['brand'])} ${_catalogName(car['model'])}'
+          .trim(),
       carPhotoUrl: car['photo_url'] as String?,
       carPlate: car['plate'] as String?,
     );
@@ -175,4 +176,9 @@ String _personName(Map<String, dynamic> value) {
   final last = value['last_name'] as String?;
   if (last == null || last.trim().isEmpty) return first;
   return '$first ${last.trim()[0]}.';
+}
+
+String _catalogName(Object? value) {
+  if (value is Map) return value['name']?.toString() ?? '';
+  return value?.toString() ?? '';
 }

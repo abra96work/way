@@ -19,7 +19,6 @@ class PassengerTripsPage extends StatefulWidget {
     this.loadTrips,
     this.initialTrips = const [],
     this.onTripPressed,
-    this.onCreatePressed,
     this.onOrdersPressed,
     this.onChatsPressed,
     this.onProfilePressed,
@@ -29,7 +28,6 @@ class PassengerTripsPage extends StatefulWidget {
   final LoadPassengerTrips? loadTrips;
   final List<PassengerTrip> initialTrips;
   final ValueChanged<PassengerTrip>? onTripPressed;
-  final VoidCallback? onCreatePressed;
   final VoidCallback? onOrdersPressed;
   final VoidCallback? onChatsPressed;
   final VoidCallback? onProfilePressed;
@@ -107,7 +105,6 @@ class _PassengerTripsPageState extends State<PassengerTripsPage> {
                       child: _buildContent(),
                     ),
                     _PassengerTabBar(
-                      onCreatePressed: widget.onCreatePressed,
                       onOrdersPressed: widget.onOrdersPressed,
                       onChatsPressed: widget.onChatsPressed,
                       onProfilePressed: widget.onProfilePressed,
@@ -790,13 +787,11 @@ class _AssetIcon extends StatelessWidget {
 
 class _PassengerTabBar extends StatelessWidget {
   const _PassengerTabBar({
-    this.onCreatePressed,
     this.onOrdersPressed,
     this.onChatsPressed,
     this.onProfilePressed,
   });
 
-  final VoidCallback? onCreatePressed;
   final VoidCallback? onOrdersPressed;
   final VoidCallback? onChatsPressed;
   final VoidCallback? onProfilePressed;
@@ -827,23 +822,6 @@ class _PassengerTabBar extends StatelessWidget {
               icon: 'nav_orders.svg',
               label: 'Мои заказы',
               onTap: onOrdersPressed,
-            ),
-            Expanded(
-              child: Center(
-                child: Material(
-                  color: _PassengerTripsPageState._primary,
-                  borderRadius: BorderRadius.circular(12),
-                  child: InkWell(
-                    key: const ValueKey('passenger-create'),
-                    onTap: onCreatePressed,
-                    borderRadius: BorderRadius.circular(12),
-                    child: SizedBox.square(
-                      dimension: 48,
-                      child: Center(child: _AssetIcon('nav_add.svg', size: 24)),
-                    ),
-                  ),
-                ),
-              ),
             ),
             _TabItem(
               icon: 'nav_chat.svg',

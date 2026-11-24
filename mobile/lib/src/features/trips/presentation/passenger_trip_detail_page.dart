@@ -747,15 +747,21 @@ class _DriverCard extends StatelessWidget {
               height: 150,
               width: double.infinity,
               child: carPhoto == null
-                  ? const ColoredBox(
+                  ? ColoredBox(
                       color: _PassengerTripDetailPageState._divider,
-                      child: Icon(
-                        Icons.directions_car,
-                        size: 64,
-                        color: _PassengerTripDetailPageState._secondary,
+                      child: Image.asset(
+                        'assets/images/driver/vehicle_car.png',
+                        fit: BoxFit.contain,
                       ),
                     )
-                  : Image.network(carPhoto, fit: BoxFit.cover),
+                  : Image.network(
+                      carPhoto,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, _, _) => Image.asset(
+                        'assets/images/driver/vehicle_car.png',
+                        fit: BoxFit.contain,
+                      ),
+                    ),
             ),
           ),
           const SizedBox(height: 12),

@@ -59,7 +59,6 @@ import 'features/trips/presentation/passenger_info_list_page.dart';
 import 'features/trips/presentation/passenger_profile_page.dart';
 import 'features/trips/presentation/passenger_role_page.dart';
 import 'features/trips/presentation/passenger_account_blocked_page.dart';
-import 'features/trips/presentation/passenger_address_search_sheet.dart';
 import 'features/trips/presentation/passenger_trip_detail_page.dart';
 import 'features/trips/presentation/passenger_trips_page.dart';
 
@@ -74,6 +73,7 @@ class _PutAppState extends State<PutApp> {
   late final GoRouter _router;
   final _apiClient = createApiClient();
   String? _pendingCity;
+  TripRole? _pendingRole;
   final _tripDraft = TripDraft();
 
   /// "Изменение заказа": a copy of the trip being edited.
@@ -81,6 +81,7 @@ class _PutAppState extends State<PutApp> {
   String? _editTripId;
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   String? _refreshToken;
+  bool _verifiedUserIsNew = true;
   String _technicalReturnPath = '/passenger-trips';
   String? _blockedReason;
   DateTime? _blockedUntil;
@@ -101,30 +102,36 @@ class _PutAppState extends State<PutApp> {
           path: '/',
           builder: (context, state) => OnboardingPage(
             onStart: () => context.go('/welcome'),
-            onSignIn: () => context.go('/sign-in'),
+            onSignIn: () => context.go('/sign-in?mode=login'),
           ),
         ),
         GoRoute(
           path: '/sign-in',
-          builder: (context, state) => PhoneLoginPage(
-            onRequestCode: _requestCode,
-            onCodeSent: (phone) => context.push(
-              '/sms-code?phone=${Uri.encodeQueryComponent(phone)}',
-            ),
-            onTermsPressed: () => context.push('/terms'),
-            onPrivacyPressed: () => context.push('/privacy'),
-          ),
+          builder: (context, state) {
+            final mode = state.uri.queryParameters['mode'] ?? 'login';
+            return PhoneLoginPage(
+              onRequestCode: _requestCode,
+              onCodeSent: (phone) => context.push(
+                '/sms-code?phone=${Uri.encodeQueryComponent(phone)}&mode=$mode',
+              ),
+              onTermsPressed: () => context.push('/terms'),
+              onPrivacyPressed: () => context.push('/privacy'),
+            );
+          },
         ),
         GoRoute(
           path: '/sms-code',
           builder: (context, state) {
             final phone = state.uri.queryParameters['phone'] ?? '';
+            final isRegistration =
+                state.uri.queryParameters['mode'] == 'register';
             return SmsCodePage(
               phone: phone,
-              onVerify: _verifyCode,
+              onVerify: (phone, code) =>
+                  _verifyCode(phone, code, isRegistration: isRegistration),
               onResend: _requestCode,
               onBack: () => context.pop(),
-              onVerified: () => context.go('/profile-registration'),
+              onVerified: () => _continueAfterVerification(context),
             );
           },
         ),
@@ -139,7 +146,7 @@ class _PutAppState extends State<PutApp> {
                 return;
               }
               await _saveCity(city);
-              if (context.mounted) context.go('/passenger-trips');
+              if (context.mounted) context.go(_onboardingDestination);
             },
           ),
         ),
@@ -165,20 +172,24 @@ class _PutAppState extends State<PutApp> {
         GoRoute(
           path: '/role-selection',
           builder: (context, state) => RoleSelectionPage(
-            onRoleSelected: (_) => context.go('/city-selection'),
+            onRoleSelected: (role) {
+              _pendingRole = role;
+              context.go('/city-selection');
+            },
           ),
         ),
         GoRoute(
           path: '/city-selection',
           builder: (context, state) => CitySelectionPage(
+            loadCities: _loadCityNames,
             onCitySelected: (city) async {
               _pendingCity = city;
               if (!_apiClient.options.headers.containsKey('Authorization')) {
-                context.go('/sign-in');
+                context.go('/sign-in?mode=register');
                 return;
               }
               await _saveCity(city);
-              if (context.mounted) context.go('/passenger-trips');
+              if (context.mounted) context.go(_onboardingDestination);
             },
           ),
         ),
@@ -188,7 +199,6 @@ class _PutAppState extends State<PutApp> {
             loadTrips: _loadPassengerTrips,
             onTripPressed: (trip) =>
                 context.push('/passenger-trips/${trip.id}'),
-            onCreatePressed: () => _startTripCreation(context),
             onOrdersPressed: () => context.go('/passenger-bookings'),
             onChatsPressed: () => context.push('/chats'),
             onProfilePressed: () => context.go('/passenger-profile'),
@@ -226,7 +236,6 @@ class _PutAppState extends State<PutApp> {
               await context.push('/passenger-bookings/${booking.id}');
             },
             onTrips: () => context.go('/passenger-trips'),
-            onCreate: () => _startTripCreation(context),
             onChats: () => context.push('/chats'),
             onProfile: () => context.go('/passenger-profile'),
           ),
@@ -267,7 +276,6 @@ class _PutAppState extends State<PutApp> {
             onLogout: _logout,
             onTrips: () => context.go('/passenger-trips'),
             onOrders: () => context.go('/passenger-bookings'),
-            onCreate: () => _startTripCreation(context),
             onChats: () => context.push('/chats'),
           ),
           routes: [
@@ -275,7 +283,10 @@ class _PutAppState extends State<PutApp> {
               path: 'role',
               builder: (context, state) => PassengerRolePage(
                 onBack: () => context.pop(),
-                onDriver: () => context.go('/driver/profile'),
+                onDriver: () {
+                  _pendingRole = TripRole.driver;
+                  context.go('/driver/trips');
+                },
               ),
             ),
             GoRoute(
@@ -382,6 +393,7 @@ class _PutAppState extends State<PutApp> {
             loadUnreadNotifications: _loadUnreadNotifications,
             onOpen: (section) {
               if (section == ProfileSection.passengerMode) {
+                _pendingRole = TripRole.passenger;
                 context.go('/passenger-profile');
               } else if (section == ProfileSection.vehicles) {
                 context.push('/driver/cars');
@@ -636,19 +648,64 @@ class _PutAppState extends State<PutApp> {
     );
   }
 
-  Future<void> _verifyCode(String phone, String code) async {
+  String get _onboardingDestination =>
+      _pendingRole == TripRole.driver ? '/driver/trips' : '/passenger-trips';
+
+  Future<void> _verifyCode(
+    String phone,
+    String code, {
+    required bool isRegistration,
+  }) async {
     final response = await _apiClient.post<Map<String, dynamic>>(
       '/auth/verify',
       data: <String, String>{'phone': phone, 'code': code},
     );
+    final isNewUser = response.data?['is_new_user'] != false;
+    final refreshToken = response.data?['refresh_token'];
+    if (isRegistration && !isNewUser) {
+      if (refreshToken is String && refreshToken.isNotEmpty) {
+        try {
+          await _apiClient.post<void>(
+            '/auth/logout',
+            data: {'refresh_token': refreshToken},
+          );
+        } on DioException {
+          // Токен всё равно не сохраняется на устройстве.
+        }
+      }
+      throw const SmsVerificationException(
+        'Аккаунт с таким телефоном уже существует',
+      );
+    }
     final accessToken = response.data?['access_token'];
     if (accessToken is! String || accessToken.isEmpty) {
       throw StateError('Сервер не вернул токен доступа');
     }
     _apiClient.options.headers['Authorization'] = 'Bearer $accessToken';
-    final refreshToken = response.data?['refresh_token'];
     _refreshToken = refreshToken is String ? refreshToken : null;
+    _verifiedUserIsNew = isNewUser;
     _requests.start();
+  }
+
+  Future<void> _continueAfterVerification(BuildContext context) async {
+    if (_verifiedUserIsNew) {
+      context.go('/profile-registration');
+      return;
+    }
+    try {
+      final city = _pendingCity;
+      if (city != null) await _saveCity(city);
+      if (context.mounted) context.go(_onboardingDestination);
+    } catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _passengerErrorMessage(error, 'Не удалось завершить вход'),
+          ),
+        ),
+      );
+    }
   }
 
   Future<List<City>> _loadCities() async {
@@ -658,6 +715,9 @@ class _PutAppState extends State<PutApp> {
         City.fromJson(item as Map<String, dynamic>),
     ];
   }
+
+  Future<List<String>> _loadCityNames() async =>
+      (await _loadCities()).map((city) => city.name).toList(growable: false);
 
   Future<List<DriverCar>> _loadCars() async {
     final response = await _apiClient.get<List<dynamic>>('/cars');
@@ -1296,16 +1356,25 @@ class _PutAppState extends State<PutApp> {
       queryParameters: <String, String>{'query': city},
     );
     final cities = response.data ?? const [];
+    final normalizedCity = foldName(city.trim());
     final exact = cities
         .whereType<Map>()
         .cast<Map<dynamic, dynamic>>()
         .firstWhere(
-          (item) => item['name'] == city,
+          (item) =>
+              foldName(item['name']?.toString().trim() ?? '') == normalizedCity,
           orElse: () => <dynamic, dynamic>{},
         );
     final id = exact['id'];
-    if (id is! int) throw StateError('Город не найден');
-    await _apiClient.patch<void>('/me', data: <String, int>{'city_id': id});
+    if (id is! num) {
+      throw const PassengerApiException(
+        'Выбранный город больше недоступен. Выберите другой город.',
+      );
+    }
+    await _apiClient.patch<void>(
+      '/me',
+      data: <String, int>{'city_id': id.toInt()},
+    );
   }
 
   Future<List<PassengerTrip>> _loadPassengerTrips(
@@ -1360,12 +1429,6 @@ class _PutAppState extends State<PutApp> {
         _passengerErrorMessage(error, 'Не удалось загрузить бронирование'),
       );
     }
-  }
-
-  Future<void> _startTripCreation(BuildContext context) async {
-    final address = await showPassengerAddressSearchSheet(context);
-    if (!context.mounted || address == null) return;
-    _showComingSoon(context, 'Маршрут от «${address.title}»');
   }
 
   Future<void> _createSeatBooking(

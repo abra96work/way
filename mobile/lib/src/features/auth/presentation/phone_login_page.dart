@@ -321,7 +321,10 @@ class _RussianPhoneFormatter extends TextInputFormatter {
     TextEditingValue newValue,
   ) {
     var digits = newValue.text.replaceAll(RegExp(r'\D'), '');
-    if (digits.length > 1 &&
+    final containsFormattedPrefix = newValue.text.trimLeft().startsWith('+7');
+    if (containsFormattedPrefix && digits.startsWith('7')) {
+      digits = digits.substring(1);
+    } else if (digits.length > 1 &&
         (digits.startsWith('7') || digits.startsWith('8'))) {
       digits = digits.substring(1);
     }

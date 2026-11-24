@@ -10,6 +10,7 @@ Dio createApiClient() {
     BaseOptions(
       baseUrl: '${AppConfig.apiBaseUrl}/api/v1',
       connectTimeout: const Duration(seconds: 5),
+      sendTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 5),
       headers: const {'Accept': 'application/json'},
     ),

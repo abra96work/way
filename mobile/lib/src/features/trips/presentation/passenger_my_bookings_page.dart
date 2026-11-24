@@ -15,7 +15,6 @@ class PassengerMyBookingsPage extends StatefulWidget {
     required this.loadBookings,
     required this.onBookingPressed,
     this.onTrips,
-    this.onCreate,
     this.onChats,
     this.onProfile,
   });
@@ -23,7 +22,6 @@ class PassengerMyBookingsPage extends StatefulWidget {
   final LoadPassengerBookings loadBookings;
   final Future<void> Function(PassengerBooking booking) onBookingPressed;
   final VoidCallback? onTrips;
-  final VoidCallback? onCreate;
   final VoidCallback? onChats;
   final VoidCallback? onProfile;
 
@@ -117,7 +115,6 @@ class _PassengerMyBookingsPageState extends State<PassengerMyBookingsPage> {
                   selected: 1,
                   onTrips: widget.onTrips,
                   onOrders: null,
-                  onCreate: widget.onCreate,
                   onChats: widget.onChats,
                   onProfile: widget.onProfile,
                 ),
@@ -183,7 +180,7 @@ class _PassengerMyBookingsPageState extends State<PassengerMyBookingsPage> {
       );
     }
     final bookings = _visible;
-    if (bookings.isEmpty) return _EmptyBookings(onCreate: widget.onCreate);
+    if (bookings.isEmpty) return const _EmptyBookings();
     return RefreshIndicator(
       color: _primary,
       onRefresh: _load,
@@ -229,9 +226,7 @@ class _PassengerMyBookingsPageState extends State<PassengerMyBookingsPage> {
 }
 
 class _EmptyBookings extends StatelessWidget {
-  const _EmptyBookings({this.onCreate});
-
-  final VoidCallback? onCreate;
+  const _EmptyBookings();
 
   @override
   Widget build(BuildContext context) => Center(
@@ -251,18 +246,8 @@ class _EmptyBookings extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         const Text(
-          'Создайте заказ — водители смогут откликнуться',
+          'Выберите подходящую поездку на главном экране',
           style: TextStyle(color: _PassengerMyBookingsPageState._secondary),
-        ),
-        const SizedBox(height: 14),
-        FilledButton.icon(
-          key: const ValueKey('passenger-my-bookings-create'),
-          onPressed: onCreate,
-          style: FilledButton.styleFrom(
-            backgroundColor: _PassengerMyBookingsPageState._primary,
-          ),
-          icon: const Icon(Icons.add, size: 18),
-          label: const Text('Создать заказ'),
         ),
       ],
     ),
@@ -413,7 +398,6 @@ class _PassengerBottomBar extends StatelessWidget {
     required this.selected,
     this.onTrips,
     this.onOrders,
-    this.onCreate,
     this.onChats,
     this.onProfile,
   });
@@ -421,7 +405,6 @@ class _PassengerBottomBar extends StatelessWidget {
   final int selected;
   final VoidCallback? onTrips;
   final VoidCallback? onOrders;
-  final VoidCallback? onCreate;
   final VoidCallback? onChats;
   final VoidCallback? onProfile;
 
@@ -447,27 +430,6 @@ class _PassengerBottomBar extends StatelessWidget {
           label: 'Мои заказы',
           selected: selected == 1,
           onTap: onOrders,
-        ),
-        Expanded(
-          child: Center(
-            child: Material(
-              color: _PassengerMyBookingsPageState._primary,
-              borderRadius: BorderRadius.circular(12),
-              child: InkWell(
-                onTap: onCreate,
-                borderRadius: BorderRadius.circular(12),
-                child: SizedBox.square(
-                  dimension: 48,
-                  child: Center(
-                    child: SvgPicture.asset(
-                      'assets/icons/passenger/nav_add.svg',
-                      width: 24,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
         ),
         _NavItem(
           icon: 'nav_chat.svg',

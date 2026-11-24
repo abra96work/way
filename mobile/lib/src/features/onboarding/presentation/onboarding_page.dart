@@ -27,8 +27,8 @@ class OnboardingPage extends StatelessWidget {
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final responsiveLogoSize = (constraints.maxHeight * 0.42)
-                  .clamp(190.0, 299.0)
+              final responsiveLogoSize = (constraints.maxHeight * 0.28)
+                  .clamp(160.0, 230.0)
                   .toDouble();
               final logoSize = math.min(
                 responsiveLogoSize,
@@ -36,18 +36,18 @@ class OnboardingPage extends StatelessWidget {
               );
 
               return Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 40),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
                 child: Column(
                   children: [
                     Expanded(
-                      child: SingleChildScrollView(
-                        physics: const ClampingScrollPhysics(),
+                      child: Center(
                         child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
                             SizedBox(
                               height: math.min(
-                                40,
-                                constraints.maxHeight * 0.055,
+                                32,
+                                constraints.maxHeight * 0.04,
                               ),
                             ),
                             Image.asset(
@@ -85,7 +85,7 @@ class OnboardingPage extends StatelessWidget {
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      padding: const EdgeInsets.only(top: 16, bottom: 8),
                       child: Column(
                         children: [
                           _OnboardingButton(
@@ -146,7 +146,7 @@ class _OnboardingButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: double.infinity,
-      height: 42,
+      height: 48,
       child: TextButton(
         onPressed: onPressed,
         style: ButtonStyle(

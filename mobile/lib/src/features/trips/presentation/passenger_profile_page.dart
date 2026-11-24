@@ -25,7 +25,6 @@ class PassengerProfilePage extends StatefulWidget {
     this.loadUnreadNotifications,
     this.onTrips,
     this.onOrders,
-    this.onCreate,
     this.onChats,
   });
 
@@ -35,7 +34,6 @@ class PassengerProfilePage extends StatefulWidget {
   final Future<void> Function() onLogout;
   final VoidCallback? onTrips;
   final VoidCallback? onOrders;
-  final VoidCallback? onCreate;
   final VoidCallback? onChats;
 
   @override
@@ -182,7 +180,6 @@ class _PassengerProfilePageState extends State<PassengerProfilePage> {
             _ProfileBottomBar(
               onTrips: widget.onTrips,
               onOrders: widget.onOrders,
-              onCreate: widget.onCreate,
               onChats: widget.onChats,
             ),
           ],
@@ -404,16 +401,10 @@ class _ProfileRow extends StatelessWidget {
 }
 
 class _ProfileBottomBar extends StatelessWidget {
-  const _ProfileBottomBar({
-    this.onTrips,
-    this.onOrders,
-    this.onCreate,
-    this.onChats,
-  });
+  const _ProfileBottomBar({this.onTrips, this.onOrders, this.onChats});
 
   final VoidCallback? onTrips;
   final VoidCallback? onOrders;
-  final VoidCallback? onCreate;
   final VoidCallback? onChats;
 
   @override
@@ -426,27 +417,6 @@ class _ProfileBottomBar extends StatelessWidget {
       children: [
         _nav('nav_trips.svg', 'Главная', onTrips),
         _nav('nav_orders.svg', 'Мои заказы', onOrders),
-        Expanded(
-          child: Center(
-            child: Material(
-              color: _PassengerProfilePageState._primary,
-              borderRadius: BorderRadius.circular(12),
-              child: InkWell(
-                onTap: onCreate,
-                borderRadius: BorderRadius.circular(12),
-                child: SizedBox.square(
-                  dimension: 48,
-                  child: Center(
-                    child: SvgPicture.asset(
-                      'assets/icons/passenger/nav_add.svg',
-                      width: 24,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
         _nav('nav_chat.svg', 'Чаты', onChats),
         _nav('nav_profile.svg', 'Профиль', null, selected: true),
       ],

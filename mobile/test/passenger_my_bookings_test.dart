@@ -1,12 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:put/src/features/trips/domain/passenger_booking.dart';
+import 'package:put/src/features/trips/domain/passenger_trip.dart';
 import 'package:put/src/features/trips/presentation/passenger_booking_cancelled_page.dart';
 import 'package:put/src/features/trips/presentation/passenger_booking_detail_page.dart';
 import 'package:put/src/features/trips/presentation/passenger_booking_dialogs.dart';
 import 'package:put/src/features/trips/presentation/passenger_my_bookings_page.dart';
 
 void main() {
+  test('trip details parse nested car catalog objects', () {
+    final details = PassengerTripDetails.fromJson(<String, dynamic>{
+      'id': 'trip-1',
+      'departure_at': '2026-11-25T06:00:00Z',
+      'driver': <String, dynamic>{'first_name': 'Виктор'},
+      'car': <String, dynamic>{
+        'brand': <String, dynamic>{'id': 15, 'name': 'Toyota'},
+        'model': <String, dynamic>{'id': 41, 'name': 'Camry'},
+        'photo_url': '/media/cars/camry.webp',
+      },
+      'full_price': <String, dynamic>{'passenger_price': 1100},
+    });
+
+    expect(details.carName, 'Toyota Camry');
+    expect(details.carPhotoUrl, '/media/cars/camry.webp');
+  });
+
   test('booking details parse passenger API response and UTC time', () {
     final booking = PassengerBooking.fromJson(_bookingJson());
 
@@ -58,6 +76,28 @@ void main() {
       findsNothing,
     );
     expect(find.byKey(const ValueKey('passenger-booking-booking-2')), findsOne);
+  });
+
+  testWidgets('passenger empty bookings has no order creation action', (
+    tester,
+  ) async {
+    _setViewport(tester);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: PassengerMyBookingsPage(
+          loadBookings: () async => const [],
+          onBookingPressed: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Выберите подходящую поездку на главном экране'),
+      findsOne,
+    );
+    expect(find.text('Создать заказ'), findsNothing);
+    expect(find.byType(FilledButton), findsNothing);
   });
 
   testWidgets('my bookings has a cancelled filter', (tester) async {
@@ -206,8 +246,8 @@ Map<String, dynamic> _bookingJson({
       'completed_trips': 127,
     },
     'car': <String, dynamic>{
-      'brand': 'Solaris',
-      'model': 'StarLiner',
+      'brand': <String, dynamic>{'id': 15, 'name': 'Solaris'},
+      'model': <String, dynamic>{'id': 41, 'name': 'StarLiner'},
       'plate': '7841НХ-7',
     },
   },

@@ -104,6 +104,18 @@ void main() {
     expect(_key('route-suggestion-2'), findsOneWidget);
   });
 
+  testWidgets('exact city name remains visible in suggestions', (tester) async {
+    final draft = TripDraft();
+    await _pump(tester, draft);
+
+    await tester.tap(_field(0));
+    await tester.enterText(_field(0), 'Екатеринбург');
+    await tester.pumpAndSettle();
+
+    expect(draft.stops.first.city, _ekb);
+    expect(_key('route-suggestion-1'), findsOneWidget);
+  });
+
   testWidgets('address without a known city is flagged after leaving it', (
     tester,
   ) async {
@@ -116,7 +128,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(draft.stops.first.city, isNull);
-    expect(find.text('Добавьте город из списка через запятую'), findsOneWidget);
+    expect(find.text('Выберите город из списка'), findsOneWidget);
   });
 
   testWidgets('same city for start and end shows an error', (tester) async {
