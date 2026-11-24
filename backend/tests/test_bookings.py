@@ -73,6 +73,7 @@ async def test_manual_flow_request_confirm_pay(client: AsyncClient, world: dict)
         "pay_to_driver": 1050,
         "is_paid": False,
         "is_refunded": False,
+        "refund_amount": 0,
     }
     assert booking["can_pay"] is False
     assert "booking_requested" in await notification_types(client, driver)
@@ -372,3 +373,130 @@ async def test_trip_numbers_increase(client: AsyncClient, world: dict) -> None:
     second = await publish(client, world["driver"], departure_at=slot(days=2, hour=10))
 
     assert second["number"] == world["trip"]["number"] + 1
+
+
+async def test_driver_sees_passenger_phone_after_accepting(
+    client: AsyncClient, world: dict
+) -> None:
+    driver, passenger = world["driver"], world["passenger"]
+    booking = await book(client, passenger, request(world))
+    url = f"/api/v1/trips/{world['trip']['id']}/bookings"
+
+    [pending] = (await client.get(url, headers=driver["headers"])).json()
+    assert pending["passenger_phone"] is None
+
+    await act(client, driver, booking, "confirm")
+    [accepted] = (await client.get(url, headers=driver["headers"])).json()
+    assert accepted["passenger_phone"] == "+79001110001"
+
+    await act(client, passenger, booking, "pay")
+    [paid] = (await client.get(url, headers=driver["headers"])).json()
+    assert paid["passenger_phone"] == "+79001110001"
+    # The passenger's own view does not echo it back.
+    own = await client.get(f"{BOOKINGS}/{booking['id']}", headers=passenger["headers"])
+    assert own.json()["passenger_phone"] is None
+
+
+async def test_driver_can_stop_and_resume_taking_passengers(
+    client: AsyncClient, world: dict
+) -> None:
+    driver, passenger = world["driver"], world["passenger"]
+    trip_id = world["trip"]["id"]
+    booked = await book(client, passenger, request(world))
+    other = await make_passenger(client, "+79001110002", "Олег")
+
+    closed = await client.post(f"/api/v1/trips/{trip_id}/close-booking", headers=driver["headers"])
+    assert closed.status_code == 200, closed.text
+    assert closed.json()["accepts_bookings"] is False
+
+    denied = await book(client, other, request(world), expected=409)
+    assert denied["code"] == "booking_closed"
+    search = await client.get(
+        "/api/v1/search/trips",
+        headers=other["headers"],
+        params={"from_city_id": world["trip"]["stops"][0]["city"]["id"]},
+    )
+    assert search.status_code == 200, search.text
+    assert trip_id not in [t["trip_id"] for t in search.json()["items"]]
+    # Who already booked stays in the trip.
+    mine = await client.get(f"{BOOKINGS}/{booked['id']}", headers=passenger["headers"])
+    assert mine.json()["status"] == "pending"
+
+    reopened = await client.post(f"/api/v1/trips/{trip_id}/open-booking", headers=driver["headers"])
+    assert reopened.json()["accepts_bookings"] is True
+    await book(client, other, request(world))
+
+
+async def paid_booking(client: AsyncClient, world: dict) -> dict:
+    booking = await book(client, world["passenger"], request(world))
+    await act(client, world["driver"], booking, "confirm")
+    return await act(client, world["passenger"], booking, "pay")
+
+
+async def test_cancel_shows_refund_amount_and_term(client: AsyncClient, world: dict) -> None:
+    booking = await paid_booking(client, world)
+    commission = booking["payment"]["pay_online"]
+    assert commission > 0
+
+    preview = await client.get(
+        f"{BOOKINGS}/{booking['id']}/cancel-preview", headers=world["passenger"]["headers"]
+    )
+    assert preview.status_code == 200
+    refund = preview.json()["refund"]
+    assert refund["amount"] == commission
+    assert refund["period_days"] == 10
+    assert "в течение 10 дней" in refund["message"]
+    assert preview.json()["is_violation"] is True  # sanction fields are still there
+
+    result = await act(client, world["passenger"], booking, "cancel")
+    assert result["refund"]["amount"] == commission
+    assert result["booking"]["payment"]["is_refunded"] is True
+    assert result["booking"]["payment"]["refund_amount"] == commission
+
+
+async def test_nothing_to_refund_before_payment(client: AsyncClient, world: dict) -> None:
+    booking = await book(client, world["passenger"], request(world))
+    preview = await client.get(
+        f"{BOOKINGS}/{booking['id']}/cancel-preview", headers=world["passenger"]["headers"]
+    )
+    assert preview.json()["refund"] == {"amount": 0, "period_days": 10, "message": None}
+    result = await act(client, world["passenger"], booking, "cancel")
+    assert result["refund"]["amount"] == 0
+    assert result["booking"]["payment"]["refund_amount"] == 0
+
+
+async def test_driver_cancel_refunds_paid_passengers(client: AsyncClient, world: dict) -> None:
+    booking = await paid_booking(client, world)
+    commission = booking["payment"]["pay_online"]
+
+    response = await client.post(
+        f"/api/v1/trips/{world['trip']['id']}/cancel", headers=world["driver"]["headers"]
+    )
+    assert response.status_code == 200
+
+    after = await client.get(f"{BOOKINGS}/{booking['id']}", headers=world["passenger"]["headers"])
+    assert after.json()["payment"]["is_refunded"] is True
+    assert after.json()["payment"]["refund_amount"] == commission
+    notices = await client.get("/api/v1/notifications", headers=world["passenger"]["headers"])
+    cancelled = [n for n in notices.json() if n["type"] == "trip_cancelled"]
+    assert "вернутся на карту" in cancelled[0]["body"]
+
+
+@pytest.mark.parametrize("action", ["reject", "cancel"])
+async def test_trip_with_booking_history_cannot_be_deleted(
+    client: AsyncClient, world: dict, action: str
+) -> None:
+    booking = await book(client, world["passenger"], request(world))
+    who = world["driver"] if action == "reject" else world["passenger"]
+    await act(client, who, booking, action)
+    trip_url = f"/api/v1/trips/{world['trip']['id']}"
+
+    # Nobody joined: the trip may still be edited...
+    trip = (await client.get(trip_url, headers=world["driver"]["headers"])).json()
+    assert trip["is_editable"] is True
+    # ...but not deleted together with the bookings, payments and chat.
+    delete = await client.delete(trip_url, headers=world["driver"]["headers"])
+    assert delete.status_code == 409
+    assert delete.json()["code"] == "trip_has_bookings"
+    cancel = await client.post(f"{trip_url}/cancel", headers=world["driver"]["headers"])
+    assert cancel.status_code == 200

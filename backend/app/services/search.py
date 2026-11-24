@@ -144,6 +144,7 @@ async def search_trips(db: AsyncSession, passenger: User, params: SearchParams) 
         .join(Car, Car.id == Trip.car_id)
         .where(
             Trip.status == TripStatus.published,
+            Trip.booking_closed_at.is_(None),
             Trip.departure_at > now,
             Trip.driver_id != passenger.id,
         )

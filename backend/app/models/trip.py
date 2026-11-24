@@ -72,6 +72,8 @@ class Trip(TimestampMixin, Base):
     )
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # «Завершить приём пассажиров»: hidden from search, no new bookings.
+    booking_closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     driver: Mapped[User] = relationship(lazy="raise")
     car: Mapped[Car] = relationship(lazy="raise")

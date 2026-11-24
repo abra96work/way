@@ -227,6 +227,9 @@ class TripRead(BaseModel):
     parcel_prices: list[ParcelPriceRead]
     return_of_trip_id: UUID | None
     is_editable: bool = Field(description="Можно менять маршрут, время и цены")
+    accepts_bookings: bool = Field(
+        default=True, description="false — водитель завершил приём пассажиров"
+    )
     created_at: datetime
     published_at: datetime | None
     requests: TripRequests | None = Field(

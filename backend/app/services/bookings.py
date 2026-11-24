@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
+from app.core.config import get_settings
 from app.core.errors import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.core.security import as_utc, utcnow
 from app.models.booking import (
@@ -29,6 +30,7 @@ from app.models.feedback import ParticipantRole
 from app.models.trip import BookingMode, ExtraKind, Trip, TripStatus
 from app.models.user import User
 from app.schemas.booking import (
+    BookingCancelPreview,
     BookingListFilter,
     BookingQuote,
     BookingRead,
@@ -36,6 +38,7 @@ from app.schemas.booking import (
     BookingStatusView,
     BookingTrip,
     PaymentInfo,
+    RefundInfo,
 )
 from app.schemas.feedback import SanctionInfo
 from app.schemas.search import CarBrief
@@ -131,6 +134,13 @@ async def to_read(
     status = _effective_status(booking, trip)
     active = booking.status in ACTIVE_BOOKING_STATUSES
     is_passenger = viewer is None or viewer.id == booking.passenger_id
+    # The driver gets the passenger's phone once the request is accepted
+    # (confirmed or instant): awaiting payment or paid.
+    show_phone = (
+        viewer is not None
+        and viewer.id == trip.driver_id
+        and booking.status in (BookingStatus.awaiting_payment, BookingStatus.paid)
+    )
     stops = trip.stops
     payment = await db.scalar(
         select(Payment).where(Payment.booking_id == booking.id).order_by(Payment.created_at.desc())
@@ -155,6 +165,7 @@ async def to_read(
                 plate=trip.car.plate,
             ),
         ),
+        passenger_phone=booking.passenger.phone if show_phone else None,
         passenger=to_rated(booking.passenger, stats[booking.passenger_id]),
         board=trip_service.stop_read(stops[booking.from_position]),
         alight=trip_service.stop_read(stops[booking.to_position]),
@@ -170,6 +181,9 @@ async def to_read(
             pay_to_driver=booking.driver_price,
             is_paid=booking.paid_at is not None,
             is_refunded=payment is not None and payment.status == "refunded",
+            refund_amount=payment.amount
+            if payment is not None and payment.status == "refunded"
+            else 0,
         ),
         can_pay=is_passenger and booking.status == BookingStatus.awaiting_payment,
         can_cancel=is_passenger and active and not _departed(trip),
@@ -218,6 +232,8 @@ async def create_booking(db: AsyncSession, passenger: User, request: BookingRequ
         raise ConflictError("Поездка отменена", code="trip_cancelled")
     if _departed(trip):
         raise ConflictError("Поездка уже отправилась", code="trip_departed")
+    if trip.booking_closed_at is not None:
+        raise ConflictError("Водитель завершил приём пассажиров", code="booking_closed")
     if trip.driver_id == passenger.id:
         raise ForbiddenError("Нельзя забронировать свою поездку", code="own_trip")
     if passenger.blocked_until and as_utc(passenger.blocked_until) > utcnow():
@@ -377,15 +393,45 @@ async def _cancellable(db: AsyncSession, passenger: User, booking_id: UUID) -> t
     return booking, trip
 
 
-async def cancel_preview(db: AsyncSession, passenger: User, booking_id: UUID) -> SanctionInfo:
-    """Shown before cancelling: is it a rules violation and will it block the account."""
+async def last_payment(db: AsyncSession, booking: Booking) -> Payment | None:
+    return await db.scalar(
+        select(Payment).where(Payment.booking_id == booking.id).order_by(Payment.created_at.desc())
+    )
+
+
+def refund_info(amount: int) -> RefundInfo:
+    """What the user is told about the money: the paid commission comes back to the card."""
+    days = get_settings().refund_period_days
+    rubles = f"{amount:,}".replace(",", "\u00a0")
+    return RefundInfo(
+        amount=amount,
+        period_days=days,
+        message=(
+            f"{rubles}\u00a0₽ вернутся на карту, с которой была оплата, в течение {days} дней"
+            if amount
+            else None
+        ),
+    )
+
+
+def _refundable(payment: Payment | None) -> int:
+    return payment.amount if payment is not None and payment.status == "succeeded" else 0
+
+
+async def cancel_preview(
+    db: AsyncSession, passenger: User, booking_id: UUID
+) -> BookingCancelPreview:
+    """Shown before cancelling: is it a rules violation, will it block the account and
+    how much comes back."""
     booking, _ = await _cancellable(db, passenger, booking_id)
-    return await sanctions.preview(db, passenger, is_violation=sanctions.is_registered(booking))
+    sanction = await sanctions.preview(db, passenger, is_violation=sanctions.is_registered(booking))
+    refund = refund_info(_refundable(await last_payment(db, booking)))
+    return BookingCancelPreview(**sanction.model_dump(), refund=refund)
 
 
 async def cancel(
     db: AsyncSession, passenger: User, booking_id: UUID
-) -> tuple[Booking, Trip, SanctionInfo]:
+) -> tuple[Booking, Trip, SanctionInfo, RefundInfo]:
     booking, trip = await _cancellable(db, passenger, booking_id)
     if sanctions.is_registered(booking):
         sanction = await sanctions.record_violation(
@@ -396,10 +442,9 @@ async def cancel(
     booking.status = BookingStatus.cancelled
     booking.cancelled_by = CancelledBy.passenger
     booking.cancelled_at = utcnow()
-    payment = await db.scalar(
-        select(Payment).where(Payment.booking_id == booking.id).order_by(Payment.created_at.desc())
-    )
-    if payment is not None and payment.status == "succeeded":
+    payment = await last_payment(db, booking)
+    refund = refund_info(_refundable(payment))
+    if refund.amount:
         payment.status = "refunded"
     notify(
         db,
@@ -411,7 +456,7 @@ async def cancel(
         booking_id=booking.id,
     )
     await db.commit()
-    return booking, trip, sanction
+    return booking, trip, sanction, refund
 
 
 # ---------- lists ----------

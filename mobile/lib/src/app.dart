@@ -24,11 +24,16 @@ import 'features/driver/presentation/create_trip/route_step_page.dart';
 import 'features/driver/presentation/create_trip/trip_published_page.dart';
 import 'features/driver/presentation/create_trip/trip_type_step_page.dart';
 import 'features/driver/presentation/profile/driver_profile_page.dart';
+import 'features/driver/presentation/trips/driver_trip_page.dart';
 import 'features/driver/presentation/trips/driver_trips_page.dart';
+import 'features/driver/presentation/trips/new_request_dialog.dart';
+import 'features/driver/presentation/trips/passenger_profile_page.dart';
 import 'features/driver/presentation/vehicles/add_vehicle_page.dart';
 import 'features/driver/presentation/vehicles/catalog_picker_sheet.dart';
 import 'features/driver/presentation/vehicles/vehicles_page.dart';
 import 'features/driver/presentation/widgets/photo_source_sheet.dart';
+import 'features/driver/presentation/widgets/success_toast.dart';
+import 'features/driver/presentation/widgets/trip_edit_scope.dart';
 import 'features/driver/presentation/widgets/driver_nav_bar.dart';
 import 'features/onboarding/presentation/city_selection_page.dart';
 import 'features/onboarding/presentation/onboarding_page.dart';
@@ -56,8 +61,19 @@ class _PutAppState extends State<PutApp> {
   final _apiClient = createApiClient();
   String? _pendingCity;
   final _tripDraft = TripDraft();
+
+  /// "Изменение заказа": a copy of the trip being edited.
+  final _editDraft = TripDraft();
+  String? _editTripId;
   final _messengerKey = GlobalKey<ScaffoldMessengerState>();
   String? _refreshToken;
+
+  /// "Новый отклик": polls for booking requests while signed in.
+  late final _requests = RequestWatcher(
+    fetchUnread: _fetchRequestNotices,
+    markRead: (id) => _apiClient.post<void>('/notifications/$id/read'),
+    present: _presentRequest,
+  );
 
   @override
   void initState() {
@@ -220,9 +236,102 @@ class _PutAppState extends State<PutApp> {
             loadTrips: _loadDriverTrips,
             onCreate: () => context.push('/driver/trips/new'),
             onTab: (tab) => _openDriverTab(context, tab),
-            // The trip screen with requests comes next.
-            onOpenTrip: (_) => _comingSoon(),
+            onOpenTrip: (trip) => context.push<bool>('/driver/trip/${trip.id}'),
           ),
+        ),
+        GoRoute(
+          path: '/driver/trip/:id',
+          builder: (context, state) {
+            final id = state.pathParameters['id']!;
+            return DriverTripPage(
+              load: () => _loadTripWithBookings(id),
+              openBookingId: state.uri.queryParameters['booking'],
+              confirmBooking: (bookingId) => _guard(
+                () => _apiClient.post<void>('/bookings/$bookingId/confirm'),
+              ),
+              rejectBooking: (bookingId) => _guard(
+                () => _apiClient.post<void>('/bookings/$bookingId/reject'),
+              ),
+              loadCancelPreview: _loadCancelPreview,
+              cancelTrip: (tripId) async {
+                await _guard(
+                  () => _apiClient.post<void>('/trips/$tripId/cancel'),
+                );
+                _snack('Поездка отменена');
+              },
+              deleteDraft: (tripId) async {
+                await _guard(() => _apiClient.delete<void>('/trips/$tripId'));
+                _snack('Шаблон удалён');
+              },
+              changeSeats: (tripId, seats) => _guard(
+                () => _apiClient.patch<void>(
+                  '/trips/$tripId/seats',
+                  data: {'seats_total': seats},
+                ),
+              ),
+              setAcceptingBookings: (tripId, accepting) => _guard(
+                () => _apiClient.post<void>(
+                  accepting
+                      ? '/trips/$tripId/open-booking'
+                      : '/trips/$tripId/close-booking',
+                ),
+              ),
+              // Transferring passengers needs its own screens and rules.
+              onTransferPassengers: (_) => _comingSoon(),
+              onEdit: (trip) {
+                _editDraft.loadTrip(trip);
+                _editTripId = trip.id;
+                // As in the design: editing opens on the route ("Шаг 2 из 4").
+                context.push('/driver/edit/route');
+              },
+              onOpenBooking: (booking) =>
+                  context.push<bool>('/driver/booking', extra: booking),
+              onOpenDriver: () => context.go('/driver/profile'),
+            );
+          },
+        ),
+        GoRoute(
+          path: '/driver/booking',
+          redirect: (context, state) =>
+              state.extra is TripBooking ? null : '/driver/trips',
+          builder: (context, state) => PassengerProfilePage(
+            booking: state.extra! as TripBooking,
+            // The chat screen comes with the "Чаты" section.
+            onChat: _comingSoon,
+          ),
+        ),
+        // "Изменение заказа": the wizard steps in edit mode (TripEditScope).
+        GoRoute(
+          path: '/driver/edit/route',
+          builder: (context, state) => _editScope(
+            RouteStepPage(
+              draft: _editDraft,
+              loadCities: _loadCities,
+              onNext: () => context.push('/driver/edit/car'),
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/driver/edit/prices',
+          builder: (context, state) => _editScope(
+            PriceStepPage(draft: _editDraft, onNext: () => context.pop()),
+          ),
+        ),
+        GoRoute(
+          path: '/driver/edit/car',
+          builder: (context, state) => _editScope(
+            CarStepPage(
+              draft: _editDraft,
+              loadCars: _loadCars,
+              onNext: () => context.push('/driver/edit/extras'),
+              onAddCar: () => context.push<void>('/driver/cars/new'),
+            ),
+          ),
+        ),
+        GoRoute(
+          path: '/driver/edit/extras',
+          builder: (context, state) =>
+              _editScope(ExtrasStepPage(draft: _editDraft, onNext: () {})),
         ),
         GoRoute(
           path: '/driver/cars/new',
@@ -339,6 +448,8 @@ class _PutAppState extends State<PutApp> {
     _router.dispose();
     _apiClient.close(force: true);
     _tripDraft.dispose();
+    _editDraft.dispose();
+    _requests.stop();
     super.dispose();
   }
 
@@ -361,6 +472,7 @@ class _PutAppState extends State<PutApp> {
     _apiClient.options.headers['Authorization'] = 'Bearer $accessToken';
     final refreshToken = response.data?['refresh_token'];
     _refreshToken = refreshToken is String ? refreshToken : null;
+    _requests.start();
   }
 
   Future<List<City>> _loadCities() async {
@@ -472,6 +584,7 @@ class _PutAppState extends State<PutApp> {
         // Signing out locally still works without the network.
       }
     }
+    _requests.stop();
     _refreshToken = null;
     _apiClient.options.headers.remove('Authorization');
     _tripDraft.reset();
@@ -487,7 +600,8 @@ class _PutAppState extends State<PutApp> {
         context.go('/driver/profile');
       case DriverTab.orders:
         context.go('/driver/trips');
-      case DriverTab.home || DriverTab.chats:
+      // "Поездки" and "Чаты" come with their screens.
+      case DriverTab.trips || DriverTab.chats:
         _comingSoon();
     }
   }
@@ -521,6 +635,106 @@ class _PutAppState extends State<PutApp> {
             mediaBaseUrl: AppConfig.apiBaseUrl,
           ),
     ];
+  }
+
+  Future<TripWithBookings> _loadTripWithBookings(String id) async {
+    final responses = await Future.wait([
+      _apiClient.get<Map<String, dynamic>>('/trips/$id'),
+      _apiClient.get<List<dynamic>>('/trips/$id/bookings'),
+    ]);
+    return (
+      trip: DriverTrip.fromJson(
+        responses[0].data! as Map<String, dynamic>,
+        mediaBaseUrl: AppConfig.apiBaseUrl,
+      ),
+      bookings: [
+        for (final item in (responses[1].data as List?) ?? const [])
+          TripBooking.fromJson(
+            item as Map<String, dynamic>,
+            mediaBaseUrl: AppConfig.apiBaseUrl,
+          ),
+      ],
+    );
+  }
+
+  Future<CancelPreview> _loadCancelPreview(String tripId) async {
+    final response = await _guard(
+      () =>
+          _apiClient.get<Map<String, dynamic>>('/trips/$tripId/cancel-preview'),
+    );
+    return CancelPreview.fromJson(response.data!);
+  }
+
+  /// Runs an API call, turning the backend's error body into
+  /// [DriverApiException].
+  Future<T> _guard<T>(Future<T> Function() call) async {
+    try {
+      return await call();
+    } on DioException catch (e) {
+      final error = e.response?.data;
+      if (error is Map && error['message'] is String) {
+        throw DriverApiException(
+          error['message'] as String,
+          code: error['code'] as String?,
+          details: error['details'],
+        );
+      }
+      rethrow;
+    }
+  }
+
+  Widget _editScope(Widget page) => TripEditScope(
+    canSave: () => _editDraft.isDirty && _editDraft.isComplete(DateTime.now()),
+    onSave: _saveEdit,
+    onEditPrices: () => _router.push('/driver/edit/prices'),
+    child: page,
+  );
+
+  /// `PUT /trips/{id}`, then back to "Мои заказы" with a green note.
+  Future<void> _saveEdit() async {
+    final id = _editTripId!;
+    await _guard(
+      () => _apiClient.put<void>('/trips/$id', data: _editDraft.toWriteJson()),
+    );
+    _router.go('/driver/trips');
+    showSuccessToast(_messengerKey.currentState, 'Изменения сохранены');
+  }
+
+  void _snack(String text) {
+    _messengerKey.currentState
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(text)));
+  }
+
+  Future<List<RequestNotice>> _fetchRequestNotices() async {
+    final response = await _apiClient.get<List<dynamic>>(
+      '/notifications',
+      queryParameters: {'unread_only': true, 'limit': 20},
+    );
+    return [
+      for (final item in response.data ?? const [])
+        if (DriverEvent.parse((item as Map)['type']) case final event?)
+          RequestNotice(
+            id: item['id'] as String,
+            tripId: item['trip_id'] as String?,
+            bookingId: item['booking_id'] as String?,
+            event: event,
+          ),
+    ];
+  }
+
+  Future<void> _presentRequest(RequestNotice notice) async {
+    final context = _router.routerDelegate.navigatorKey.currentContext;
+    if (context == null || notice.tripId == null) return;
+    final trip = '/driver/trip/${notice.tripId}';
+    switch (notice.event) {
+      case DriverEvent.request:
+        if (!await showNewRequestDialog(context)) return;
+        final booking = notice.bookingId;
+        _router.push(booking == null ? trip : '$trip?booking=$booking');
+      case DriverEvent.paid:
+        if (await showPaidDialog(context)) _router.push(trip);
+    }
   }
 
   Future<List<CatalogItem>> _loadBrands() async {

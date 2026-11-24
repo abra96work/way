@@ -9,12 +9,16 @@ class TripTypeStepPage extends StatefulWidget {
   const TripTypeStepPage({
     super.key,
     required this.onNext,
+    this.onChanged,
     this.initialType = VehicleType.car,
     this.onBack,
   });
 
   final VehicleType initialType;
   final ValueChanged<VehicleType> onNext;
+
+  /// Called on every pick (editing saves without pressing "Далее").
+  final ValueChanged<VehicleType>? onChanged;
   final VoidCallback? onBack;
 
   @override
@@ -23,6 +27,11 @@ class TripTypeStepPage extends StatefulWidget {
 
 class _TripTypeStepPageState extends State<TripTypeStepPage> {
   late VehicleType _selected = widget.initialType;
+
+  void _pick(VehicleType type) {
+    setState(() => _selected = type);
+    widget.onChanged?.call(type);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,7 +50,7 @@ class _TripTypeStepPageState extends State<TripTypeStepPage> {
             subtitle: 'Легковая машина, до 8 пассажиров',
             image: 'assets/images/driver/vehicle_car.png',
             selected: _selected == VehicleType.car,
-            onTap: () => setState(() => _selected = VehicleType.car),
+            onTap: () => _pick(VehicleType.car),
           ),
           const SizedBox(height: 12),
           _VehicleTypeCard(
@@ -50,7 +59,7 @@ class _TripTypeStepPageState extends State<TripTypeStepPage> {
             subtitle: 'Маршрутка или автобус, до 60 мест',
             image: 'assets/images/driver/vehicle_bus.png',
             selected: _selected == VehicleType.bus,
-            onTap: () => setState(() => _selected = VehicleType.bus),
+            onTap: () => _pick(VehicleType.bus),
           ),
         ],
       ),

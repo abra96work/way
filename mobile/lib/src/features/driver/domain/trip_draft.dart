@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'driver_car.dart';
+import 'driver_trip.dart';
 
 /// Vehicle type of a trip, as the backend names it (`vehicle_type`).
 enum VehicleType {
@@ -410,6 +411,60 @@ class TripDraft extends ChangeNotifier {
     };
   }
 
+  // ---------- editing an existing trip ----------
+
+  String? _baseline;
+
+  /// Fills the draft from a published trip or a template, for "Изменение
+  /// заказа". [isDirty] compares against this state.
+  void loadTrip(DriverTrip trip) {
+    reset();
+    _vehicleType = trip.vehicleType;
+    _stops = [
+      for (var i = 0; i < trip.stops.length; i++)
+        RouteStop(
+          id: _nextStopId++,
+          text: trip.stops[i],
+          city: i < trip.stopCities.length ? trip.stopCities[i] : null,
+        ),
+    ];
+    final d = trip.departureAt;
+    _departureDate = DateTime(d.year, d.month, d.day);
+    _departureTime = TimeOfDay(hour: d.hour, minute: d.minute);
+    final a = trip.arrivalAt;
+    _arrivalTime = a == null ? null : TimeOfDay(hour: a.hour, minute: a.minute);
+    _seats = trip.seatsTotal;
+    _fullPrice = trip.fullPrice;
+    _minPrice = trip.minPrice;
+    for (var i = 0; i + 1 < _stops.length; i++) {
+      final price = trip.segmentPrices[(i, i + 1)];
+      if (price != null) {
+        _segmentPrices[_segmentKey(_stops[i], _stops[i + 1])] = price;
+      }
+    }
+    _carId = trip.carId;
+    _extras.addAll(trip.extras.keys);
+    _parcelSizes.addAll(trip.parcelSizes);
+    _bookingMode = trip.bookingMode;
+    _baseline = _fingerprint();
+    notifyListeners();
+  }
+
+  String _fingerprint() => toWriteJson().toString();
+
+  /// Something differs from the trip loaded by [loadTrip].
+  bool get isDirty => _baseline != null && _fingerprint() != _baseline;
+
+  /// Everything a save needs: route and time, prices and a car.
+  bool isComplete(DateTime now) =>
+      isRouteStepComplete(now) && isPriceStepComplete && _carId != null;
+
+  /// Body of `PUT /api/v1/trips/{id}`.
+  Map<String, dynamic> toWriteJson() {
+    if (departureAt == null) return const {};
+    return toCreateTripJson()..remove('publish');
+  }
+
   /// Start a new trip from scratch.
   void reset() {
     _carId = null;
@@ -426,6 +481,7 @@ class TripDraft extends ChangeNotifier {
     _extras.clear();
     _parcelSizes.clear();
     _bookingMode = null;
+    _baseline = null;
     notifyListeners();
   }
 }

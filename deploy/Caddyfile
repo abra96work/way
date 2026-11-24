@@ -1,0 +1,7 @@
+# HTTPS-сертификат Let's Encrypt выпускается автоматически для PUT_DOMAIN
+# (например 1-2-3-4.sslip.io — имя, которое само указывает на IP сервера).
+{$PUT_DOMAIN} {
+	encode gzip
+	# API, /media и WebSocket чата — всё в один бэкенд.
+	reverse_proxy api:8000
+}

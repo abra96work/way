@@ -27,6 +27,13 @@ class DriverTrip {
     this.seatsAvailable = 0,
     this.requestsCount = 0,
     this.requestAvatars = const [],
+    this.driver,
+    this.carPhotoUrl,
+    this.isEditable = false,
+    this.acceptsBookings = true,
+    this.stopCities = const [],
+    this.carId,
+    this.minPrice = 0,
   });
 
   /// [mediaBaseUrl] turns relative `/media/...` avatar paths into URLs.
@@ -78,6 +85,27 @@ class DriverTrip {
       ),
       seatsTotal: json['seats_total'] as int? ?? 0,
       seatsAvailable: json['seats_available'] as int? ?? 0,
+      driver: json['driver'] == null
+          ? null
+          : TripPerson.fromJson(
+              json['driver'] as Map<String, dynamic>,
+              mediaBaseUrl: mediaBaseUrl,
+            ),
+      carPhotoUrl: car['photo_url'] == null
+          ? null
+          : '$mediaBaseUrl${car['photo_url']}',
+      isEditable: json['is_editable'] as bool? ?? false,
+      acceptsBookings: json['accepts_bookings'] as bool? ?? true,
+      stopCities: [
+        for (final s in json['stops'] as List)
+          if ((s as Map)['city'] is Map)
+            City(
+              id: (s['city'] as Map)['id'] as int,
+              name: (s['city'] as Map)['name'] as String,
+            ),
+      ],
+      carId: car['id'] as String?,
+      minPrice: json['min_price'] == null ? 0 : driverPrice(json['min_price']),
       requestsCount: (json['requests'] as Map?)?['count'] as int? ?? 0,
       requestAvatars: [
         for (final a in (json['requests'] as Map?)?['avatars'] as List? ?? [])
@@ -116,6 +144,23 @@ class DriverTrip {
   final int seatsTotal;
   final int seatsAvailable;
 
+  /// The driver as passengers see them (name, photo, rating).
+  final TripPerson? driver;
+  final String? carPhotoUrl;
+
+  /// Route, time and prices can change: nobody has joined yet.
+  final bool isEditable;
+
+  /// false after «Завершить приём пассажиров».
+  final bool acceptsBookings;
+
+  /// City of each stop (same order as [stops]); needed to edit the route.
+  final List<City> stopCities;
+  final String? carId;
+
+  /// "Стоимость посадки", the driver's own price.
+  final int minPrice;
+
   /// Active requests and bookings (only in "Мои заказы").
   final int requestsCount;
   final List<String> requestAvatars;
@@ -128,6 +173,146 @@ class DriverTrip {
     final last = stops.length - 1;
     return segmentPrices[(last - to, last - from)];
   }
+}
+
+/// A person in a trip card: the driver or a passenger (`RatedUser`).
+@immutable
+class TripPerson {
+  const TripPerson({
+    required this.id,
+    required this.firstName,
+    this.lastName,
+    this.avatarUrl,
+    this.rating = 5,
+    this.reviewsCount = 0,
+    this.completedTrips = 0,
+  });
+
+  factory TripPerson.fromJson(
+    Map<String, dynamic> json, {
+    String mediaBaseUrl = '',
+  }) {
+    final avatar = json['avatar_url'] as String?;
+    return TripPerson(
+      id: json['id'] as String,
+      firstName: json['first_name'] as String? ?? '',
+      lastName: json['last_name'] as String?,
+      avatarUrl: avatar == null ? null : '$mediaBaseUrl$avatar',
+      rating: (json['rating'] as num?)?.toDouble() ?? 5,
+      reviewsCount: json['reviews_count'] as int? ?? 0,
+      completedTrips: json['completed_trips'] as int? ?? 0,
+    );
+  }
+
+  final String id;
+  final String firstName;
+  final String? lastName;
+  final String? avatarUrl;
+  final double rating;
+  final int reviewsCount;
+  final int completedTrips;
+
+  /// "Виктор О."
+  String get shortName {
+    final last = lastName?.trim() ?? '';
+    final name = firstName.trim().isEmpty ? 'Без имени' : firstName.trim();
+    return last.isEmpty ? name : '$name ${last[0]}.';
+  }
+
+  /// "4,8"
+  String get ratingLabel => rating.toStringAsFixed(1).replaceAll('.', ',');
+}
+
+/// Booking status as the driver sees it.
+enum TripBookingStatus {
+  pending('Ждёт подтверждения'),
+  awaitingPayment('Ждёт оплаты'),
+  paid('Оплачено'),
+  completed('Поездка завершена'),
+  rejected('Отклонена'),
+  cancelled('Отменена');
+
+  const TripBookingStatus(this.label);
+
+  final String label;
+
+  static TripBookingStatus parse(String? value) => switch (value) {
+    'awaiting_payment' => awaitingPayment,
+    'paid' => paid,
+    'completed' => completed,
+    'rejected' => rejected,
+    'cancelled' => cancelled,
+    _ => pending,
+  };
+
+  /// Still in the trip (shown in "Пассажиры").
+  bool get isActive => this != rejected && this != cancelled;
+}
+
+/// A seat or parcel booking of the driver's trip (`GET /trips/{id}/bookings`).
+@immutable
+class TripBooking {
+  const TripBooking({
+    required this.id,
+    required this.passenger,
+    required this.status,
+    this.seats = 1,
+    this.parcelSize,
+    this.phone,
+    this.boardAddress,
+    this.alightAddress,
+    this.driverPrice,
+  });
+
+  factory TripBooking.fromJson(
+    Map<String, dynamic> json, {
+    String mediaBaseUrl = '',
+  }) {
+    final size = json['parcel_size'] as String?;
+    return TripBooking(
+      id: json['id'] as String,
+      passenger: TripPerson.fromJson(
+        json['passenger'] as Map<String, dynamic>,
+        mediaBaseUrl: mediaBaseUrl,
+      ),
+      status: TripBookingStatus.parse(json['status'] as String?),
+      seats: json['seats'] as int? ?? 1,
+      parcelSize: size == null
+          ? null
+          : ParcelSize.values.firstWhere((s) => s.value == size),
+      phone: json['passenger_phone'] as String?,
+      boardAddress: (json['board'] as Map?)?['address'] as String?,
+      alightAddress: (json['alight'] as Map?)?['address'] as String?,
+      driverPrice: (json['price'] as Map?)?['driver_price'] as int?,
+    );
+  }
+
+  /// Where the passenger gets on and off ("Маршрут пассажира").
+  final String? boardAddress;
+  final String? alightAddress;
+
+  /// What the driver gets for this booking (seats and extras, no commission).
+  final int? driverPrice;
+
+  final String id;
+  final TripPerson passenger;
+
+  /// The passenger's phone: the backend sends it only after payment.
+  final String? phone;
+  final TripBookingStatus status;
+  final int seats;
+
+  /// Set for a parcel (no seat taken).
+  final ParcelSize? parcelSize;
+
+  /// "2 места", "Посылка S".
+  String get what => parcelSize != null
+      ? 'Посылка ${parcelSize!.value}'
+      : seats == 1
+      ? '1 место'
+      : seats < 5
+      ? '$seats места'
+      : '$seats мест';
 }
 
 /// `status` of `TripRead`; "completed" is computed by the backend.

@@ -25,7 +25,9 @@ class DriverTripsPage extends StatefulWidget {
   final Future<List<DriverTrip>> Function(DriverTripsTab tab) loadTrips;
   final VoidCallback onCreate;
   final ValueChanged<DriverTab> onTab;
-  final ValueChanged<DriverTrip>? onOpenTrip;
+
+  /// Opens the trip; the list reloads when it closes.
+  final Future<void> Function(DriverTrip trip)? onOpenTrip;
 
   @override
   State<DriverTripsPage> createState() => _DriverTripsPageState();
@@ -148,7 +150,10 @@ class _DriverTripsPageState extends State<DriverTripsPage> {
                           trip: trips[i],
                           onTap: widget.onOpenTrip == null
                               ? null
-                              : () => widget.onOpenTrip!(trips[i]),
+                              : () async {
+                                  await widget.onOpenTrip!(trips[i]);
+                                  if (mounted) _reload();
+                                },
                         ),
                       ),
                     );

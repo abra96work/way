@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     cancellations_to_block: int = 2
     cancellation_window_days: int = 30
     block_duration_days: int = 30
+    # Payments are a mock; the refund term is what the user is told on cancelling.
+    refund_period_days: int = 10
 
     model_config = SettingsConfigDict(
         env_file=".env",

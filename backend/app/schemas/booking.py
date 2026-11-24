@@ -69,6 +69,17 @@ class PaymentInfo(BaseModel):
     is_refunded: bool = Field(
         default=False, description="Комиссия возвращена после отмены бронирования"
     )
+    refund_amount: int = Field(default=0, description="Сумма возврата, ₽ (0 — возврата нет)")
+
+
+class RefundInfo(BaseModel):
+    amount: int = Field(description="Сумма возврата, ₽: оплаченная в приложении комиссия")
+    period_days: int = Field(description="Срок возврата на ту же карту, дней")
+    message: str | None = Field(description="Текст для пользователя; null, если возвращать нечего")
+
+
+class BookingCancelPreview(SanctionInfo):
+    refund: RefundInfo
 
 
 class BookingTrip(BaseModel):
@@ -89,6 +100,10 @@ class BookingRead(BaseModel):
     kind: BookingKind
     trip: BookingTrip
     passenger: RatedUser
+    passenger_phone: str | None = Field(
+        default=None,
+        description="Телефон пассажира: только водителю этой поездки, после принятия заявки",
+    )
     board: StopRead
     alight: StopRead
     seats: int
@@ -123,3 +138,4 @@ class UnreadCount(BaseModel):
 class BookingCancelResult(BaseModel):
     booking: BookingRead
     sanction: SanctionInfo
+    refund: RefundInfo

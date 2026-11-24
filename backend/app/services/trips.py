@@ -9,7 +9,13 @@ from sqlalchemy.orm import joinedload, selectinload
 from app.core.config import get_settings
 from app.core.errors import AppError, ConflictError, ForbiddenError, NotFoundError
 from app.core.security import as_utc, utcnow
-from app.models.booking import ACTIVE_BOOKING_STATUSES, Booking, BookingStatus, CancelledBy
+from app.models.booking import (
+    ACTIVE_BOOKING_STATUSES,
+    Booking,
+    BookingStatus,
+    CancelledBy,
+    Payment,
+)
 from app.models.car import Car, CarModel
 from app.models.city import City
 from app.models.feedback import ParticipantRole
@@ -230,6 +236,7 @@ async def to_read(db: AsyncSession, trip: Trip) -> TripRead:
         ],
         return_of_trip_id=trip.return_of_trip_id,
         is_editable=editable,
+        accepts_bookings=trip.booking_closed_at is None,
         created_at=as_utc(trip.created_at),
         published_at=as_utc(trip.published_at) if trip.published_at else None,
     )
@@ -497,6 +504,18 @@ async def update_seats(db: AsyncSession, driver: User, trip_id: UUID, seats_tota
     return await get_own_trip(db, driver, trip.id)
 
 
+async def set_accepting_bookings(
+    db: AsyncSession, driver: User, trip_id: UUID, *, accepting: bool
+) -> Trip:
+    """«Завершить приём пассажиров» (and back): existing bookings stay."""
+    trip = await get_own_trip(db, driver, trip_id)
+    if trip.status != TripStatus.published or effective_status(trip) != TripStatusView.published:
+        raise ConflictError("Поездка уже неактивна", code="trip_inactive")
+    trip.booking_closed_at = None if accepting else (trip.booking_closed_at or utcnow())
+    await db.commit()
+    return await get_own_trip(db, driver, trip.id)
+
+
 async def publish_trip(db: AsyncSession, driver: User, trip_id: UUID) -> Trip:
     trip = await get_own_trip(db, driver, trip_id)
     if trip.status != TripStatus.draft:
@@ -537,16 +556,29 @@ async def cancel_trip(db: AsyncSession, driver: User, trip_id: UUID) -> tuple[Tr
             Booking.trip_id == trip.id, Booking.status.in_(ACTIVE_BOOKING_STATUSES)
         )
     )
-    for booking in bookings:
+    for booking in list(bookings):
         booking.status = BookingStatus.cancelled
         booking.cancelled_by = CancelledBy.driver
         booking.cancelled_at = now
+        body = "Водитель отменил поездку, бронь аннулирована"
+        # The passenger is not at fault: the paid commission goes back in full.
+        payments = await db.scalars(
+            select(Payment).where(Payment.booking_id == booking.id, Payment.status == "succeeded")
+        )
+        refunded = 0
+        for payment in payments:
+            payment.status = "refunded"
+            refunded += payment.amount
+        if refunded:
+            days = get_settings().refund_period_days
+            rubles = f"{refunded:,}".replace(",", " ")
+            body += f". {rubles} ₽ вернутся на карту в течение {days} дней"
         notify(
             db,
             booking.passenger_id,
             NotificationType.trip_cancelled,
             "Поездка отменена",
-            "Водитель отменил поездку, бронь аннулирована",
+            body,
             trip_id=trip.id,
             booking_id=booking.id,
         )
@@ -556,9 +588,13 @@ async def cancel_trip(db: AsyncSession, driver: User, trip_id: UUID) -> tuple[Tr
 
 async def delete_trip(db: AsyncSession, driver: User, trip_id: UUID) -> None:
     trip = await get_own_trip(db, driver, trip_id)
-    if await count_active_bookings(db, trip):
+    # Any booking, even a rejected or cancelled one, is history (payments, chat): keep it.
+    has_history = await db.scalar(
+        select(func.count()).select_from(Booking).where(Booking.trip_id == trip.id)
+    )
+    if has_history:
         raise ConflictError(
-            "Поездку с пассажирами нельзя удалить, только отменить", code="trip_has_bookings"
+            "У поездки есть бронирования — её можно только отменить", code="trip_has_bookings"
         )
     await db.delete(trip)
     await db.commit()

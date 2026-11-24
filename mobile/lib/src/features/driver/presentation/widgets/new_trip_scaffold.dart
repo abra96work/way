@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'driver_style.dart';
+import 'trip_edit_scope.dart';
 
 /// Shared frame of the six "Новый заказ" steps: header with a back button,
 /// "Шаг N из 6", scrollable content, the bottom "Далее" button and an
@@ -47,6 +48,15 @@ class NewTripScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final edit = TripEditScope.maybeOf(context);
+    final title = edit == null
+        ? this.title
+        : this.step == TripEditScope.pricesStep
+        ? 'Изменение стоимости'
+        : 'Изменение заказа';
+    // Editing shows no "Шаг N из M" until the number of edit steps is
+    // settled with the client (see docs/РЕШЕНИЯ.md).
+    final step = edit == null ? this.step : null;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -88,58 +98,38 @@ class NewTripScaffold extends StatelessWidget {
                   child: child,
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      height: 48,
-                      child: FilledButton(
-                        key: const ValueKey('new-trip-next'),
-                        onPressed: _busy ? null : onNext,
-                        style: FilledButton.styleFrom(
-                          backgroundColor: DriverColors.primary,
-                          foregroundColor: Colors.white,
-                          disabledBackgroundColor: outlinedWhenDisabled
-                              ? Colors.transparent
-                              : DriverColors.divider,
-                          disabledForegroundColor: outlinedWhenDisabled
-                              ? const Color(0xFF95969C)
-                              : DriverColors.secondaryText,
-                          side: outlinedWhenDisabled && onNext == null
-                              ? const BorderSide(color: DriverColors.divider)
-                              : null,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          textStyle: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            height: 1.33,
-                          ),
-                        ),
-                        child: isSubmitting
-                            ? const SizedBox.square(
-                                dimension: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Text(nextLabel),
-                      ),
-                    ),
-                    if (secondaryLabel != null) ...[
-                      const SizedBox(height: 8),
+              if (edit != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: TripEditButtons(
+                    scope: edit,
+                    wizardStep: this.step ?? 0,
+                    onNext: onNext,
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                       SizedBox(
                         height: 48,
-                        child: OutlinedButton(
-                          key: const ValueKey('new-trip-secondary'),
-                          onPressed: _busy ? null : onSecondary,
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: DriverColors.primary,
-                            side: const BorderSide(color: DriverColors.primary),
+                        child: FilledButton(
+                          key: const ValueKey('new-trip-next'),
+                          onPressed: _busy ? null : onNext,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: DriverColors.primary,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: outlinedWhenDisabled
+                                ? Colors.transparent
+                                : DriverColors.divider,
+                            disabledForegroundColor: outlinedWhenDisabled
+                                ? const Color(0xFF95969C)
+                                : DriverColors.secondaryText,
+                            side: outlinedWhenDisabled && onNext == null
+                                ? const BorderSide(color: DriverColors.divider)
+                                : null,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
@@ -149,21 +139,53 @@ class NewTripScaffold extends StatelessWidget {
                               height: 1.33,
                             ),
                           ),
-                          child: isSecondarySubmitting
+                          child: isSubmitting
                               ? const SizedBox.square(
                                   dimension: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: DriverColors.primary,
+                                    color: Colors.white,
                                   ),
                                 )
-                              : Text(secondaryLabel!),
+                              : Text(nextLabel),
                         ),
                       ),
+                      if (secondaryLabel != null) ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          height: 48,
+                          child: OutlinedButton(
+                            key: const ValueKey('new-trip-secondary'),
+                            onPressed: _busy ? null : onSecondary,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: DriverColors.primary,
+                              side: const BorderSide(
+                                color: DriverColors.primary,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              textStyle: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                height: 1.33,
+                              ),
+                            ),
+                            child: isSecondarySubmitting
+                                ? const SizedBox.square(
+                                    dimension: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: DriverColors.primary,
+                                    ),
+                                  )
+                                : Text(secondaryLabel!),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
             ],
           ),
         ),

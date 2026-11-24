@@ -126,6 +126,21 @@ async def update_seats(
     return await trip_service.to_read(db, trip)
 
 
+@router.post("/{trip_id}/close-booking", response_model=TripRead, responses=_errors)
+async def close_booking(trip_id: UUID, user: CurrentUser, db: DbSession) -> TripRead:
+    """«Завершить приём пассажиров»: поездка пропадает из поиска, новых броней нет.
+    Уже записанные пассажиры остаются."""
+    trip = await trip_service.set_accepting_bookings(db, user, trip_id, accepting=False)
+    return await trip_service.to_read(db, trip)
+
+
+@router.post("/{trip_id}/open-booking", response_model=TripRead, responses=_errors)
+async def open_booking(trip_id: UUID, user: CurrentUser, db: DbSession) -> TripRead:
+    """Снова принимать пассажиров."""
+    trip = await trip_service.set_accepting_bookings(db, user, trip_id, accepting=True)
+    return await trip_service.to_read(db, trip)
+
+
 @router.post("/{trip_id}/publish", response_model=TripRead, responses=_errors)
 async def publish_trip(trip_id: UUID, user: CurrentUser, db: DbSession) -> TripRead:
     trip = await trip_service.publish_trip(db, user, trip_id)

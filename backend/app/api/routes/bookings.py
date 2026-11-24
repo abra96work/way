@@ -6,13 +6,13 @@ from fastapi import APIRouter, Query, status
 from app.api.deps import CurrentUser, DbSession
 from app.core.errors import ErrorResponse
 from app.schemas.booking import (
+    BookingCancelPreview,
     BookingCancelResult,
     BookingListFilter,
     BookingQuote,
     BookingRead,
     BookingRequest,
 )
-from app.schemas.feedback import SanctionInfo
 from app.services import bookings as booking_service
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
@@ -80,9 +80,12 @@ async def pay(booking_id: UUID, user: CurrentUser, db: DbSession) -> BookingRead
     return await booking_service.to_read(db, booking, trip, user)
 
 
-@router.get("/{booking_id}/cancel-preview", response_model=SanctionInfo, responses=_errors)
-async def cancel_preview(booking_id: UUID, user: CurrentUser, db: DbSession) -> SanctionInfo:
-    """Перед отменой: нарушает ли она правила сообщества и приведёт ли к блокировке."""
+@router.get("/{booking_id}/cancel-preview", response_model=BookingCancelPreview, responses=_errors)
+async def cancel_preview(
+    booking_id: UUID, user: CurrentUser, db: DbSession
+) -> BookingCancelPreview:
+    """Перед отменой: нарушает ли она правила сообщества, приведёт ли к блокировке,
+    сколько и в какой срок вернётся."""
     return await booking_service.cancel_preview(db, user, booking_id)
 
 
@@ -90,7 +93,9 @@ async def cancel_preview(booking_id: UUID, user: CurrentUser, db: DbSession) -> 
 async def cancel(booking_id: UUID, user: CurrentUser, db: DbSession) -> BookingCancelResult:
     """Отмена пассажиром. После регистрации (подтверждена/оплачена) — предупреждение,
     2 такие отмены за 30 дней блокируют аккаунт на 30 дней."""
-    booking, trip, sanction = await booking_service.cancel(db, user, booking_id)
+    booking, trip, sanction, refund = await booking_service.cancel(db, user, booking_id)
     return BookingCancelResult(
-        booking=await booking_service.to_read(db, booking, trip, user), sanction=sanction
+        booking=await booking_service.to_read(db, booking, trip, user),
+        sanction=sanction,
+        refund=refund,
     )

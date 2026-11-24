@@ -35,7 +35,7 @@ Future<void> _pump(
   WidgetTester tester,
   Future<List<DriverTrip>> Function(DriverTripsTab) load, {
   VoidCallback? onCreate,
-  ValueChanged<DriverTrip>? onOpen,
+  Future<void> Function(DriverTrip)? onOpen,
   ValueChanged<DriverTab>? onTab,
 }) async {
   await tester.binding.setSurfaceSize(const Size(375, 1400));
@@ -122,7 +122,7 @@ void main() {
     await _pump(
       tester,
       (_) async => [_trip()],
-      onOpen: (t) => opened.add(t.id),
+      onOpen: (t) async => opened.add(t.id),
       onTab: tabs.add,
     );
 

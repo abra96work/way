@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'driver_style.dart';
 
 /// Tabs of the driver's bottom bar; [create] is the green "+" button.
-enum DriverTab { home, orders, create, chats, profile }
+enum DriverTab { trips, orders, create, chats, profile }
 
-/// Bottom bar of the driver screens: Главная, Мои заказы, "+", Чаты, Профиль.
+/// Bottom bar of the driver screens: Поездки, Мои заказы, "+", Чаты, Профиль.
 class DriverNavBar extends StatelessWidget {
   const DriverNavBar({
     super.key,
@@ -29,7 +29,7 @@ class DriverNavBar extends StatelessWidget {
           height: 56,
           child: Row(
             children: [
-              _item(DriverTab.home, Icons.home_outlined, 'Главная'),
+              _item(DriverTab.trips, Icons.directions_car_outlined, 'Поездки'),
               _item(
                 DriverTab.orders,
                 Icons.receipt_long_outlined,
